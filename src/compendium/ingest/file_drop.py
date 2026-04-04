@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 import shutil
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
@@ -51,6 +52,8 @@ class IngestResult:
     output_path: Path | None = None
     success: bool = False
     message: str = ""
+    duplicate_of: str | None = None
+    ocr_confidence: float | None = None
 
 
 @dataclass
@@ -75,6 +78,7 @@ class BatchResult:
 def _ingest_markdown(path: Path, raw_dir: Path) -> IngestResult:
     """Ingest a markdown or text file — passthrough with frontmatter."""
     content = path.read_text(errors="replace")
+    had_encoding_replacement = "\ufffd" in content
 
     # Check if it already has frontmatter
     try:
@@ -112,7 +116,10 @@ def _ingest_markdown(path: Path, raw_dir: Path) -> IngestResult:
         source_path=path,
         output_path=output_path,
         success=True,
-        message=f"Ingested: {path.name} ({fm_data['word_count']} words)",
+        message=(
+            f"Ingested: {path.name} ({fm_data['word_count']} words)"
+            + (" [encoding repaired]" if had_encoding_replacement else "")
+        ),
     )
 
 
@@ -182,6 +189,7 @@ def ingest_file(
     raw_dir: Path,
     images_dir: Path,
     originals_dir: Path,
+    duplicate_mode: str = "cancel",
 ) -> IngestResult:
     """Ingest a single file into the raw/ directory.
 
@@ -201,20 +209,30 @@ def ingest_file(
     # Dedup check
     file_hash = content_hash(path)
     dup = find_duplicate_by_hash(raw_dir, file_hash)
-    if dup:
+    if dup and duplicate_mode == "cancel":
         return IngestResult(
             source_path=path,
             message=f"Duplicate of {dup.name} (identical content hash)",
+            duplicate_of=str(dup),
         )
+    if dup and duplicate_mode == "overwrite":
+        dup.unlink(missing_ok=True)
 
     try:
         if ext == ".pdf":
             output = extract_pdf(path, raw_dir, originals_dir, images_dir)
+            ocr_confidence = None
+            try:
+                post = frontmatter.load(str(output))
+                ocr_confidence = post.metadata.get("ocr_confidence")
+            except Exception:
+                ocr_confidence = None
             return IngestResult(
                 source_path=path,
                 output_path=output,
                 success=True,
                 message=f"Ingested PDF: {path.name}",
+                ocr_confidence=ocr_confidence,
             )
         elif ext in IMAGE_EXTENSIONS:
             return _ingest_image(path, images_dir)
@@ -222,6 +240,10 @@ def ingest_file(
             return _ingest_csv(path, raw_dir)
         else:
             return _ingest_markdown(path, raw_dir)
+    except ValueError as e:
+        return IngestResult(source_path=path, message=str(e))
+    except UnicodeDecodeError:
+        return IngestResult(source_path=path, message="Encoding error while reading file")
     except Exception as e:
         return IngestResult(source_path=path, message=f"Error: {e}")
 
@@ -231,17 +253,37 @@ def ingest_batch(
     raw_dir: Path,
     images_dir: Path,
     originals_dir: Path,
+    duplicate_mode: str = "cancel",
+    max_workers: int = 5,
 ) -> BatchResult:
     """Ingest a batch of files. Errors on individual files don't block others."""
     batch = BatchResult()
+
+    expanded_paths: list[Path] = []
     for path in paths:
         if path.is_dir():
-            # Recursively collect files from directory
-            for child in sorted(path.rglob("*")):
-                if child.is_file() and child.suffix.lower() in SUPPORTED_EXTENSIONS:
-                    result = ingest_file(child, raw_dir, images_dir, originals_dir)
-                    batch.results.append(result)
+            expanded_paths.extend(
+                child
+                for child in sorted(path.rglob("*"))
+                if child.is_file() and child.suffix.lower() in SUPPORTED_EXTENSIONS
+            )
         else:
-            result = ingest_file(path, raw_dir, images_dir, originals_dir)
-            batch.results.append(result)
+            expanded_paths.append(path)
+
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        future_map = {
+            executor.submit(
+                ingest_file,
+                path,
+                raw_dir,
+                images_dir,
+                originals_dir,
+                duplicate_mode,
+            ): path
+            for path in expanded_paths
+        }
+        for future in as_completed(future_map):
+            batch.results.append(future.result())
+
+    batch.results.sort(key=lambda result: str(result.source_path))
     return batch

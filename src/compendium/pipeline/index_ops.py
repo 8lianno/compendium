@@ -26,6 +26,8 @@ def _scan_wiki_articles(wiki_dir: Path) -> list[dict[str, str]]:
             "CHANGELOG.md",
             "HEALTH_REPORT.md",
             "SCHEMA.md",
+            "log.md",
+            "overview.md",
         ):
             continue
 

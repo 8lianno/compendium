@@ -3,13 +3,16 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import shutil
+import subprocess
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
 import frontmatter
 
 from compendium.core.frontmatter import RawSourceFrontmatter
+from compendium.core.templates import generate_schema_md
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -97,12 +100,21 @@ class WikiFileSystem:
         return self.staging_dir / ".checkpoint.json"
 
     @property
+    def clip_log_path(self) -> Path:
+        return self.raw_dir / ".clip-log.json"
+
+    @property
     def config_path(self) -> Path:
         return self.root / "compendium.toml"
 
     # -- Initialization --
 
-    def init_project(self, name: str = "My Knowledge Wiki") -> None:
+    def init_project(
+        self,
+        name: str = "My Knowledge Wiki",
+        template: str = "research",
+        domain: str = "",
+    ) -> None:
         """Create the full project directory structure."""
         dirs = [
             self.raw_dir,
@@ -120,6 +132,9 @@ class WikiFileSystem:
         for d in dirs:
             d.mkdir(parents=True, exist_ok=True)
 
+        safe_template = template.replace('"', '\\"')
+        safe_domain = domain.replace('"', '\\"')
+
         # Create default compendium.toml if it doesn't exist
         if not self.config_path.exists():
             self.config_path.write_text(
@@ -136,9 +151,19 @@ class WikiFileSystem:
                 "token_budget = 500_000\n"
                 "min_article_words = 200\n"
                 "max_article_words = 3000\n\n"
+                "[templates]\n"
+                f'default = "{safe_template}"\n'
+                f'domain = "{safe_domain}"\n\n'
+                "[lint]\n"
+                'schedule = "manual"\n'
+                "missing_data_web_search = false\n\n"
                 "[server]\n"
                 "port = 17394\n"
             )
+
+        schema_path = self.wiki_dir / "SCHEMA.md"
+        if not schema_path.exists():
+            schema_path.write_text(generate_schema_md(template, domain))
 
         # Create .gitkeep files for empty dirs
         for d in [self.raw_images_dir, self.raw_originals_dir, self.staging_dir, self.backup_dir]:
@@ -170,6 +195,8 @@ class WikiFileSystem:
                         "# Compendium internals\n"
                         "wiki/.staging/\nwiki/.backup/\n"
                         "wiki/.compilation-log/\nwiki/.search-index/\n"
+                        "raw/.clip-log.json\n"
+                        ".compendium-keys.json\n"
                         ".sessions/\n"
                     )
             except FileNotFoundError:
@@ -246,6 +273,119 @@ Customize this section to document domain-specific conventions:
             for chunk in iter(lambda: f.read(8192), b""):
                 h.update(chunk)
         return f"sha256:{h.hexdigest()}"
+
+    # -- Shared project operations --
+
+    def append_clip_log(self, entry: dict) -> None:
+        """Append a structured entry to raw/.clip-log.json."""
+        entries: list[dict] = []
+        if self.clip_log_path.exists():
+            try:
+                entries = json.loads(self.clip_log_path.read_text())
+            except Exception:
+                entries = []
+        entries.append(entry)
+        self.clip_log_path.write_text(json.dumps(entries, indent=2))
+
+    def refresh_search_index(self) -> bool:
+        """Best-effort search index rebuild after wiki changes."""
+        try:
+            from compendium.search.engine import SearchEngine
+
+            engine = SearchEngine(self.wiki_dir)
+            engine.build_index()
+            return True
+        except Exception:
+            return False
+
+    def append_log_entry(self, entry: str) -> None:
+        """Append an entry to wiki/log.md, creating the file header if needed."""
+        log_path = self.wiki_dir / "log.md"
+        if not log_path.exists():
+            log_path.write_text("# Wiki Log\n\nChronological record of all wiki operations.\n\n")
+        with open(log_path, "a", encoding="utf-8") as handle:
+            handle.write(entry)
+
+    def git_available(self) -> bool:
+        return shutil.which("git") is not None and (self.root / ".git").exists()
+
+    def checkout_branch(self, branch: str) -> bool:
+        """Create or switch to a branch. Returns False if git is unavailable or switch fails."""
+        if not branch or not self.git_available():
+            return False
+        try:
+            current = subprocess.run(
+                ["git", "branch", "--show-current"],
+                cwd=str(self.root),
+                capture_output=True,
+                text=True,
+                check=False,
+            ).stdout.strip()
+            if current == branch:
+                return True
+
+            exists = subprocess.run(
+                ["git", "rev-parse", "--verify", branch],
+                cwd=str(self.root),
+                capture_output=True,
+                check=False,
+            ).returncode == 0
+            if exists:
+                result = subprocess.run(
+                    ["git", "switch", branch],
+                    cwd=str(self.root),
+                    capture_output=True,
+                    check=False,
+                )
+            else:
+                result = subprocess.run(
+                    ["git", "switch", "-c", branch],
+                    cwd=str(self.root),
+                    capture_output=True,
+                    check=False,
+                )
+            return result.returncode == 0
+        except Exception:
+            return False
+
+    def auto_commit(self, message: str, paths: list[Path] | None = None) -> bool:
+        """Commit specific paths if git is available and there are staged changes."""
+        if not message or not self.git_available():
+            return False
+
+        try:
+            path_args = [
+                str(p.relative_to(self.root)) if p.is_absolute() else str(p)
+                for p in paths or []
+            ]
+            add_cmd = ["git", "add", "--"]
+            add_cmd.extend(path_args or ["."])
+            subprocess.run(
+                add_cmd,
+                cwd=str(self.root),
+                capture_output=True,
+                check=False,
+            )
+
+            status = subprocess.run(
+                ["git", "diff", "--cached", "--name-only"],
+                cwd=str(self.root),
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            if not status.stdout.strip():
+                return False
+
+            result = subprocess.run(
+                ["git", "commit", "-m", message],
+                cwd=str(self.root),
+                capture_output=True,
+                check=False,
+            )
+            return result.returncode == 0
+        except Exception:
+            return False
 
     # -- Wiki article operations --
 

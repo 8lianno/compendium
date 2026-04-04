@@ -11,6 +11,7 @@ from compendium.llm.provider import (
     TokenPricing,
     TokenUsage,
 )
+from compendium.llm.retry import with_retry
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
@@ -81,11 +82,14 @@ class GeminiProvider:
             max_output_tokens=request.max_tokens,
         )
 
-        response = self._client.models.generate_content(
-            model=self._model,
-            contents=contents,
-            config=config,
-        )
+        async def _generate():
+            return self._client.models.generate_content(
+                model=self._model,
+                contents=contents,
+                config=config,
+            )
+
+        response = await with_retry(_generate)
 
         text = response.text or ""
         usage_meta = response.usage_metadata
@@ -108,7 +112,10 @@ class GeminiProvider:
     async def test_connection(self) -> bool:
         """Test connection by listing models."""
         try:
-            models = self._client.models.list()
+            async def _list_models():
+                return self._client.models.list()
+
+            models = await with_retry(_list_models)
             return len(list(models)) > 0
         except Exception:
             return False

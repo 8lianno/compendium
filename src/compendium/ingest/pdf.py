@@ -36,7 +36,13 @@ def extract_pdf(
     """
     import pymupdf  # type: ignore[import-untyped]
 
-    doc = pymupdf.open(str(pdf_path))
+    try:
+        doc = pymupdf.open(str(pdf_path))
+    except Exception as exc:
+        message = str(exc).lower()
+        if "password" in message or "encrypted" in message:
+            raise ValueError("Password-protected PDF") from exc
+        raise ValueError("Corrupt or unreadable PDF") from exc
 
     # Extract metadata
     meta = doc.metadata or {}
@@ -57,6 +63,8 @@ def extract_pdf(
     # Detect if OCR is needed (very little text extracted)
     ocr_needed = word_count < 10 and page_count > 0
 
+    ocr_confidence: float | None = None
+
     if ocr_needed:
         # Try Tesseract OCR first, fall back to PyMuPDF text blocks
         try:
@@ -64,14 +72,25 @@ def extract_pdf(
             from PIL import Image  # type: ignore[import-untyped]
 
             text_parts = []
+            confidences: list[float] = []
             for page in doc:
                 pix = page.get_pixmap(dpi=300)
                 img = Image.frombytes("RGB", (pix.width, pix.height), pix.samples)
                 ocr_text = pytesseract.image_to_string(img)
+                try:
+                    data = pytesseract.image_to_data(img, output_type=pytesseract.Output.DICT)
+                    for confidence in data.get("conf", []):
+                        conf_value = float(confidence)
+                        if conf_value >= 0:
+                            confidences.append(conf_value / 100.0)
+                except Exception:
+                    pass
                 if ocr_text.strip():
                     text_parts.append(ocr_text)
             full_text = "\n\n".join(text_parts)
             word_count = len(full_text.split())
+            if confidences:
+                ocr_confidence = round(sum(confidences) / len(confidences), 3)
         except ImportError:
             # Tesseract not available — fall back to PyMuPDF text blocks
             text_parts = []
@@ -123,6 +142,8 @@ def extract_pdf(
     }
     if author:
         fm_data["author"] = author
+    if ocr_confidence is not None:
+        fm_data["ocr_confidence"] = ocr_confidence
 
     # Save markdown
     post = frontmatter.Post(md_content, **fm_data)

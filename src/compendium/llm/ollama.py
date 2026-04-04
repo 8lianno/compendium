@@ -13,6 +13,7 @@ from compendium.llm.provider import (
     TokenPricing,
     TokenUsage,
 )
+from compendium.llm.retry import with_retry
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
@@ -68,7 +69,7 @@ class OllamaProvider:
             },
         }
 
-        response = await self._client.post("/api/chat", json=payload)
+        response = await with_retry(self._client.post, "/api/chat", json=payload)
         response.raise_for_status()
         data = response.json()
 
@@ -122,7 +123,7 @@ class OllamaProvider:
     async def test_connection(self) -> bool:
         """Test by listing available models."""
         try:
-            response = await self._client.get("/api/tags")
+            response = await with_retry(self._client.get, "/api/tags")
             response.raise_for_status()
             return True
         except Exception:
@@ -131,7 +132,7 @@ class OllamaProvider:
     async def list_models(self) -> list[str]:
         """List available Ollama models."""
         try:
-            response = await self._client.get("/api/tags")
+            response = await with_retry(self._client.get, "/api/tags")
             response.raise_for_status()
             data = response.json()
             return [m["name"] for m in data.get("models", [])]

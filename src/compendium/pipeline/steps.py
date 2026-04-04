@@ -321,36 +321,81 @@ def step_build_index(
 
     now = datetime.now(UTC).isoformat()
 
+    def extract_summary(body: str) -> str:
+        for line in body.split("\n"):
+            stripped = re.sub(r"[*_`#>\-\[\]]", "", line).strip()
+            if stripped:
+                return stripped[:140]
+        return ""
+
+    def extract_sources(metadata: dict) -> str:
+        sources = metadata.get("sources", [])
+        refs: list[str] = []
+        for source in sources:
+            if isinstance(source, dict):
+                ref = str(source.get("ref", "")).strip()
+            else:
+                ref = str(source).strip()
+            if not ref:
+                continue
+            ref = ref.replace("raw/", "").replace(".md", "")
+            refs.append(ref)
+        if not refs:
+            return "—"
+        if len(refs) <= 3:
+            return ", ".join(refs)
+        return f"{', '.join(refs[:3])}, +{len(refs) - 3} more"
+
+    def extract_updated(metadata: dict) -> str:
+        value = metadata.get("updated_at") or metadata.get("created_at") or now
+        return str(value)[:10]
+
+    rows_by_category: dict[str, list[tuple[str, str, str, str, str]]] = {}
+
+    for article in articles:
+        try:
+            post = frontmatter.loads(article["content"])
+            metadata = dict(post.metadata)
+            title = metadata.get("title", article["path"].split("/")[-1])
+            category = metadata.get("category", "uncategorized")
+            page_type = metadata.get("type", category)
+            summary = extract_summary(post.content.strip())
+            sources_value = extract_sources(metadata)
+            updated_value = extract_updated(metadata)
+        except Exception:
+            title = article["path"].split("/")[-1].replace(".md", "").replace("-", " ").title()
+            category = "uncategorized"
+            page_type = category
+            summary = ""
+            sources_value = "—"
+            updated_value = now[:10]
+
+        slug = article["path"].split("/")[-1].replace(".md", "")
+        rows_by_category.setdefault(category, []).append(
+            (title, slug, str(page_type), summary, sources_value, updated_value)
+        )
+
     # -- INDEX.md --
     index_lines = [
         "# Wiki Index\n",
         f"*Last updated: {now}*\n",
         f"*Articles: {len(articles)}*\n\n",
-        "| Article | Category | Summary |\n",
-        "|---------|----------|--------|\n",
     ]
 
-    for article in articles:
-        # Parse frontmatter to get title and category
-        try:
-            post = frontmatter.loads(article["content"])
-            title = post.metadata.get("title", article["path"].split("/")[-1])
-            category = post.metadata.get("category", "uncategorized")
-            # Extract first sentence as summary
-            body = post.content.strip()
-            first_line = ""
-            for line in body.split("\n"):
-                line = line.strip()
-                if line and not line.startswith("#"):
-                    first_line = line[:100]
-                    break
-        except Exception:
-            title = article["path"].split("/")[-1].replace(".md", "").replace("-", " ").title()
-            category = "uncategorized"
-            first_line = ""
-
-        slug = article["path"].split("/")[-1].replace(".md", "")
-        index_lines.append(f"| [[{slug}|{title}]] | {category} | {first_line} |\n")
+    for category in sorted(rows_by_category):
+        index_lines.append(f"## {category.title()}\n\n")
+        index_lines.append("| Page | Type | Summary | Sources | Updated |\n")
+        index_lines.append("|------|------|---------|---------|---------|\n")
+        for title, slug, page_type, summary, sources_value, updated_value in sorted(
+            rows_by_category[category], key=lambda row: row[0].lower()
+        ):
+            safe_summary = summary.replace("|", "\\|")
+            safe_sources = sources_value.replace("|", "\\|")
+            index_lines.append(
+                f"| [[{slug}|{title}]] | {page_type} | {safe_summary} | "
+                f"{safe_sources} | {updated_value} |\n"
+            )
+        index_lines.append("\n")
 
     # -- CONCEPTS.md --
     concepts_lines = [
@@ -383,6 +428,7 @@ def step_build_index(
 
 def build_log_entry(
     event_type: str,
+    title: str | None = None,
     articles_count: int = 0,
     concepts_count: int = 0,
     sources_count: int = 0,
@@ -391,8 +437,25 @@ def build_log_entry(
     """Build an append-only log entry for log.md."""
     from datetime import UTC, datetime
 
-    now = datetime.now(UTC).strftime("%Y-%m-%d %H:%M")
-    parts = [f"## [{now}] {event_type}"]
+    event_map = {
+        "compile": ("rebuild", "Compile wiki"),
+        "incremental update": ("schema-update", "Incremental update"),
+        "file to wiki": ("file", "File output to wiki"),
+        "file": ("file", "File output to wiki"),
+        "lint": ("lint", "Lint wiki"),
+        "ingest": ("ingest", "Ingest sources"),
+        "query": ("query", "Query knowledge base"),
+        "rebuild": ("rebuild", "Rebuild wiki artifacts"),
+        "schema-update": ("schema-update", "Schema update"),
+    }
+
+    operation, default_title = event_map.get(event_type, (event_type, event_type.replace("-", " ")))
+    heading_title = title or default_title
+
+    now = datetime.now(UTC).strftime("%Y-%m-%d")
+    parts = [f"## [{now}] {operation} | {heading_title}"]
+    if event_type != operation:
+        parts.append(f"- Event type: {event_type}")
     if articles_count:
         parts.append(f"- Articles: {articles_count}")
     if concepts_count:

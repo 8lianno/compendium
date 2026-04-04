@@ -47,13 +47,21 @@ def init(
         typer.Argument(help="Directory to initialize (default: current dir)"),
     ] = None,
     name: Annotated[str, typer.Option(help="Wiki project name")] = "My Knowledge Wiki",
+    template: Annotated[
+        str,
+        typer.Option(help="Starter schema template"),
+    ] = "research",
+    domain: Annotated[
+        str,
+        typer.Option(help="Optional domain description for the starter schema"),
+    ] = "",
 ) -> None:
     """Initialize a new Compendium project."""
     project_dir = Path(path) if path else Path.cwd()
     project_dir.mkdir(parents=True, exist_ok=True)
 
     wfs = WikiFileSystem(project_dir)
-    wfs.init_project(name=name)
+    wfs.init_project(name=name, template=template, domain=domain)
 
     console.print(
         Panel(
@@ -64,7 +72,7 @@ def init(
             f"Next steps:\n"
             f"  1. Add sources: [cyan]compendium ingest <file>[/cyan]\n"
             f"  2. Configure LLM: [cyan]compendium config set-key anthropic[/cyan]\n"
-            f"  3. Compile wiki: [cyan]compendium compile[/cyan]",
+            f"  3. Compile wiki: [cyan]compendium compile --mode batch[/cyan]",
             title=f"[bold]{name}[/bold]",
         )
     )
@@ -78,20 +86,29 @@ def compile(
     project_dir: Annotated[
         Path | None, typer.Option("--dir", "-d", help="Project directory")
     ] = None,
-    resume: Annotated[bool, typer.Option(help="Resume from checkpoint")] = False,
+    mode: Annotated[
+        str,
+        typer.Option(help="Compile mode: interactive or batch"),
+    ] = "batch",
+    branch: Annotated[
+        str | None,
+        typer.Option(help="Optional git branch for experimental compile runs"),
+    ] = None,
 ) -> None:
     """Compile raw sources into a wiki (6-step LLM pipeline)."""
     import asyncio
 
-    from rich.status import Status
-
     from compendium.llm.factory import create_provider
     from compendium.llm.prompts import PromptLoader
-    from compendium.pipeline.controller import ProgressCallback, compile_wiki
+    from compendium.pipeline.sessions import approve_compile_session, start_compile_session
 
     wfs = _get_wiki_fs(project_dir)
     config = _get_config(project_dir)
     sources = wfs.list_raw_sources()
+
+    if mode not in {"interactive", "batch"}:
+        console.print(f"[red]Unsupported mode:[/red] {mode}")
+        raise typer.Exit(1)
 
     if not sources:
         console.print("[yellow]No raw sources found in raw/. Add sources first.[/yellow]")
@@ -99,41 +116,62 @@ def compile(
 
     console.print(f"Found [bold]{len(sources)}[/bold] raw sources. Starting compilation...\n")
 
-    step_names = {
-        "summarize": "Step 1/6: Summarizing sources",
-        "extract_concepts": "Step 2/6: Extracting concepts",
-        "generate_articles": "Step 3/6: Generating articles",
-        "create_backlinks": "Step 4/6: Creating backlinks",
-        "build_index": "Step 5/6: Building index",
-        "detect_conflicts": "Step 6/6: Detecting conflicts",
-        "promoting": "Finalizing",
-    }
-    status_ctx = Status("")
-    status_ctx.start()
-
-    def on_progress(step: str, current: int, total: int, detail: str = "") -> None:
-        label = step_names.get(step, step)
-        status_ctx.update(f"{label}: {detail}")
-
     try:
         llm = create_provider(config.models.compilation)
         prompt_loader = PromptLoader(project_prompts_dir=wfs.root / "prompts")
-        progress = ProgressCallback(on_progress)
-
-        result = asyncio.run(compile_wiki(wfs, config, llm, prompt_loader, progress, resume))
+        session = asyncio.run(
+            start_compile_session(
+                wfs,
+                config,
+                llm,
+                prompt_loader,
+                mode="interactive" if mode == "interactive" else "batch",
+                branch=branch,
+            )
+        )
     except ValueError as e:
-        status_ctx.stop()
         console.print(f"[red]Error:[/red] {e}")
         raise typer.Exit(1) from None
     except Exception as e:
-        status_ctx.stop()
         console.print(f"[red]Compilation failed:[/red] {e}")
         raise typer.Exit(1) from None
-    finally:
-        status_ctx.stop()
 
-    if "error" in result:
-        console.print(f"[red]{result['error']}[/red]")
+    if session.error:
+        console.print(f"[red]{session.error}[/red]")
+        raise typer.Exit(1)
+
+    if session.mode == "interactive":
+        while session.status == "awaiting_approval":
+            pending_source = session.pending_source or {}
+            pending_summary = session.pending_summary or {}
+            console.print(
+                Panel(
+                    (
+                        f"[bold]{pending_source.get('title', 'Untitled source')}[/bold]\n"
+                        f"{pending_source.get('path', '')}\n\n"
+                        f"{pending_summary.get('summary', 'No summary generated.')}"
+                    ),
+                    title=f"Review {session.current_index + 1}/{session.source_count}",
+                )
+            )
+            approved = typer.confirm("Approve this source summary?", default=True)
+            session = asyncio.run(
+                approve_compile_session(
+                    wfs,
+                    session.session_id,
+                    config,
+                    llm,
+                    prompt_loader,
+                    approve=approved,
+                )
+            )
+            if session.error and session.status != "completed":
+                console.print(f"[red]{session.error}[/red]")
+                raise typer.Exit(1)
+
+    result = session.result or {}
+    if session.status != "completed":
+        console.print(f"[red]{session.error or 'Compilation failed'}[/red]")
         raise typer.Exit(1)
 
     console.print(
@@ -141,7 +179,8 @@ def compile(
         f"  Articles: [bold]{result['articles_count']}[/bold]\n"
         f"  Concepts: [bold]{result['concepts_count']}[/bold]\n"
         f"  Conflicts: [bold]{result['conflicts_detected']}[/bold]\n"
-        f"  Sources: [bold]{result['sources_processed']}[/bold]"
+        f"  Sources: [bold]{result['sources_processed']}[/bold]\n"
+        f"  Session: [dim]{session.session_id}[/dim]"
     )
 
 
@@ -155,6 +194,10 @@ def update(
         typer.Argument(help="Path to new source, or --all-new for all uncompiled"),
     ] = None,
     all_new: Annotated[bool, typer.Option("--all-new", help="Update all new sources")] = False,
+    branch: Annotated[
+        str | None,
+        typer.Option(help="Optional git branch for experimental update runs"),
+    ] = None,
     project_dir: Annotated[
         Path | None, typer.Option("--dir", "-d", help="Project directory")
     ] = None,
@@ -164,7 +207,7 @@ def update(
 
     from compendium.llm.factory import create_provider
     from compendium.llm.prompts import PromptLoader
-    from compendium.pipeline.controller import ProgressCallback, incremental_update
+    from compendium.pipeline.sessions import start_update_session
 
     wfs = _get_wiki_fs(project_dir)
     config = _get_config(project_dir)
@@ -176,25 +219,33 @@ def update(
         console.print("Specify a source path or use --all-new to update all new sources.")
         raise typer.Exit(1)
 
-    def on_progress(step: str, current: int, total: int, detail: str = "") -> None:
-        console.print(f"  [dim]{detail}[/dim]")
-
     try:
         llm = create_provider(config.models.compilation)
         prompt_loader = PromptLoader(project_prompts_dir=wfs.root / "prompts")
-        progress = ProgressCallback(on_progress)
-
-        result = asyncio.run(
-            incremental_update(wfs, config, llm, prompt_loader, new_paths, progress)
+        session = asyncio.run(
+            start_update_session(
+                wfs,
+                config,
+                llm,
+                prompt_loader,
+                new_source_paths=new_paths,
+                branch=branch,
+            )
         )
     except ValueError as e:
         console.print(f"[red]Error:[/red] {e}")
         raise typer.Exit(1) from None
 
+    result = session.result or {}
+    if session.status != "completed":
+        console.print(f"[red]{session.error or 'Update failed'}[/red]")
+        raise typer.Exit(1)
+
     if "message" in result:
         console.print(result["message"])
     if result.get("articles_added"):
         console.print(f"[green]Added {result['articles_added']} article(s)[/green]")
+    console.print(f"[dim]Session: {session.session_id}[/dim]")
 
 
 # -- ask --
@@ -205,12 +256,16 @@ def ask(
     question: Annotated[str, typer.Argument(help="Question to ask against the wiki")],
     output: Annotated[
         str | None,
-        typer.Option(help="Output format: text (default), report, slides"),
+        typer.Option(help="Output format: text (default), report, slides, html, or chart"),
     ] = None,
     count: Annotated[int, typer.Option(help="Number of slides (for --output slides)")] = 10,
     file_to_wiki: Annotated[
         bool, typer.Option("--file", help="File the output into the wiki")
     ] = False,
+    resolution: Annotated[
+        str | None,
+        typer.Option(help="Duplicate filing resolution: merge, replace, keep_both, or cancel"),
+    ] = None,
     project_dir: Annotated[
         Path | None, typer.Option("--dir", "-d", help="Project directory")
     ] = None,
@@ -222,7 +277,7 @@ def ask(
     from compendium.llm.prompts import PromptLoader
     from compendium.qa.engine import ask_question
     from compendium.qa.filing import file_to_wiki as _file_to_wiki
-    from compendium.qa.output import render_report, render_slides
+    from compendium.qa.output import render_chart_bundle, render_html, render_report, render_slides
     from compendium.qa.session import ConversationSession
 
     wfs = _get_wiki_fs(project_dir)
@@ -269,6 +324,15 @@ def ask(
 
         output_path = render_canvas(question, answer, sources, wfs.output_dir)
         console.print(f"\n[green]Canvas saved:[/green] {output_path}")
+    elif output == "html":
+        output_path = render_html(question, answer, sources, wfs.output_dir)
+        console.print(f"\n[green]HTML saved:[/green] {output_path}")
+    elif output == "chart":
+        chart_path, note_path = render_chart_bundle(question, answer, sources, wfs.output_dir)
+        output_path = note_path
+        if chart_path is not None:
+            console.print(f"\n[green]Chart PNG saved:[/green] {chart_path}")
+        console.print(f"[green]Chart note saved:[/green] {note_path}")
 
     # File to wiki if requested
     if file_to_wiki:
@@ -277,7 +341,13 @@ def ask(
             output_path = render_report(
                 question, answer, sources, result.get("tokens_used", 0), wfs.output_dir
             )
-        filing_result = _file_to_wiki(output_path, wfs)
+        filing_result = _file_to_wiki(output_path, wfs, resolution=resolution)
+        if filing_result["status"] == "similar" and resolution is None:
+            choice = typer.prompt(
+                "A similar page already exists. Choose merge, replace, keep_both, or cancel",
+                default="merge",
+            )
+            filing_result = _file_to_wiki(output_path, wfs, resolution=choice)
         if filing_result["status"] == "filed":
             console.print(
                 f"[green]Filed to wiki:[/green] {filing_result['filed_path']} "
@@ -398,8 +468,6 @@ def lint(
 
     console.print(f"\n[dim]Full report: {report_path}[/dim]")
 
-    # Append to log.md
-    from compendium.pipeline.controller import _append_log
     from compendium.pipeline.steps import build_log_entry
 
     log_entry = build_log_entry(
@@ -407,7 +475,8 @@ def lint(
         notes=f"{report.critical_count} critical, "
         f"{report.warning_count} warning, {report.info_count} info",
     )
-    _append_log(wfs.wiki_dir / "log.md", log_entry)
+    wfs.append_log_entry(log_entry)
+    wfs.auto_commit("[lint]: refresh health report", paths=[report_path, wfs.wiki_dir / "log.md"])
 
 
 # -- ingest --
@@ -416,6 +485,10 @@ def lint(
 @app.command()
 def ingest(
     paths: Annotated[list[str], typer.Argument(help="Files or directories to ingest")],
+    duplicate_mode: Annotated[
+        str,
+        typer.Option(help="Duplicate handling: cancel, overwrite, or keep_both"),
+    ] = "cancel",
     discuss: Annotated[
         bool,
         typer.Option("--discuss", help="Discuss key takeaways with LLM after ingest"),
@@ -439,6 +512,7 @@ def ingest(
             raw_dir=wfs.raw_dir,
             images_dir=wfs.raw_images_dir,
             originals_dir=wfs.raw_originals_dir,
+            duplicate_mode=duplicate_mode,
         )
         progress.update(task, completed=result.total)
 

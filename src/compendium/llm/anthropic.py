@@ -13,6 +13,7 @@ from compendium.llm.provider import (
     TokenPricing,
     TokenUsage,
 )
+from compendium.llm.retry import with_retry
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
@@ -77,7 +78,7 @@ class AnthropicProvider:
         if request.stop_sequences:
             kwargs["stop_sequences"] = request.stop_sequences
 
-        response = await self._client.messages.create(**kwargs)
+        response = await with_retry(self._client.messages.create, **kwargs)
 
         content = ""
         for block in response.content:
@@ -126,7 +127,8 @@ class AnthropicProvider:
     async def test_connection(self) -> bool:
         """Test connection by sending a minimal request."""
         try:
-            response = await self._client.messages.create(
+            response = await with_retry(
+                self._client.messages.create,
                 model=self._model,
                 messages=[{"role": "user", "content": "ping"}],
                 max_tokens=5,

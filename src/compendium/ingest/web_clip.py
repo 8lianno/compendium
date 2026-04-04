@@ -55,11 +55,30 @@ def _guess_extension(url: str) -> str:
     return ".png"  # default
 
 
+def _extract_meta(name: str, html: str) -> str:
+    """Extract a meta tag value by name/property."""
+    patterns = [
+        rf'<meta[^>]+name=["\']{re.escape(name)}["\'][^>]+content=["\']([^"\']+)["\']',
+        rf'<meta[^>]+property=["\']{re.escape(name)}["\'][^>]+content=["\']([^"\']+)["\']',
+    ]
+    for pattern in patterns:
+        match = re.search(pattern, html, re.IGNORECASE)
+        if match:
+            return match.group(1).strip()
+    return ""
+
+
+def _extract_language(html: str) -> str:
+    match = re.search(r"<html[^>]+lang=[\"']([^\"']+)[\"']", html, re.IGNORECASE)
+    return match.group(1).strip() if match else ""
+
+
 async def clip_webpage(
     url: str,
     html: str,
     raw_dir: Path,
     images_dir: Path,
+    duplicate_mode: str = "cancel",
 ) -> tuple[Path | None, str]:
     """Clip a webpage to markdown with local images.
 
@@ -75,29 +94,45 @@ async def clip_webpage(
     """
     # Check for duplicates
     existing = find_duplicate_by_url(raw_dir, url)
-    if existing:
+    if existing and duplicate_mode == "cancel":
         return None, f"duplicate:{existing.name}"
+    overwrite_existing = existing if existing and duplicate_mode == "overwrite" else None
 
     # Extract article content using Readability
     doc = Document(html)
     title = doc.title()
     article_html = doc.summary()
+    author = _extract_meta("author", html) or _extract_meta("article:author", html)
+    language = _extract_language(html)
+    partial = False
+    plain_text = re.sub(r"<[^>]+>", " ", html).strip()
 
-    if not article_html or len(article_html.strip()) < 50:
+    if (not plain_text or len(plain_text) < 5) and (not article_html or len(article_html) < 200):
         return None, "no_content"
 
     # Convert HTML to markdown
-    markdown_content = md(
-        article_html,
-        heading_style="ATX",
-        code_language_callback=lambda el: (
-            el.get("class", [""])[0].replace("language-", "") if el.get("class") else ""
-        ),
-        strip=["script", "style"],
-    )
+    markdown_content = ""
+    clip_format = "markdown"
+    if article_html and len(article_html.strip()) >= 50:
+        markdown_content = md(
+            article_html,
+            heading_style="ATX",
+            code_language_callback=lambda el: (
+                el.get("class", [""])[0].replace("language-", "") if el.get("class") else ""
+            ),
+            strip=["script", "style"],
+        )
 
     if not markdown_content or not markdown_content.strip():
-        return None, "no_content"
+        partial = True
+        clip_format = "html-raw"
+        markdown_content = (
+            f"# {title or 'Clipped Page'}\n\n"
+            "## Raw HTML Fallback\n\n"
+            "```html\n"
+            f"{html[:50000]}\n"
+            "```\n"
+        )
 
     # Download images
     slug = slugify(title)
@@ -144,23 +179,42 @@ async def clip_webpage(
         "id": slug,
         "source_url": url,
         "source": "web-clip",
-        "format": "markdown",
+        "format": clip_format,
         "clipped_at": datetime.now(UTC).isoformat(),
         "word_count": word_count,
         "content_hash": text_hash(markdown_content),
         "status": "raw",
+        "author": author,
+        "language": language,
+        "partial": partial,
     }
 
     # Save markdown file
     post = frontmatter.Post(markdown_content, **fm_data)
-    output_path = raw_dir / f"{slug}.md"
+    output_path = overwrite_existing or raw_dir / f"{slug}.md"
 
-    counter = 2
-    while output_path.exists():
-        output_path = raw_dir / f"{slug}-{counter}.md"
-        counter += 1
+    if overwrite_existing is None:
+        counter = 2
+        while output_path.exists():
+            output_path = raw_dir / f"{slug}-{counter}.md"
+            counter += 1
 
     output_path.write_text(frontmatter.dumps(post))
+    from compendium.core.wiki_fs import WikiFileSystem
+
+    WikiFileSystem(raw_dir.parent).append_clip_log(
+        {
+            "timestamp": datetime.now(UTC).isoformat(),
+            "url": url,
+            "title": title,
+            "path": str(output_path.relative_to(raw_dir.parent)),
+            "duplicate_mode": duplicate_mode,
+            "format": clip_format,
+            "partial": partial,
+            "images_downloaded": downloaded,
+            "images_failed": failed,
+        }
+    )
 
     # Build status message
     img_msg = ""
@@ -170,4 +224,5 @@ async def clip_webpage(
             img_msg += f", {failed} failed"
         img_msg += ")"
 
-    return output_path, f"Clipped: {title} ({word_count:,} words){img_msg}"
+    fallback_msg = " [raw HTML fallback]" if partial else ""
+    return output_path, f"Clipped: {title} ({word_count:,} words){img_msg}{fallback_msg}"

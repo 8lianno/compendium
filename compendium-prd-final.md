@@ -1,225 +1,357 @@
-# Compendium — LLM-Native Knowledge Compiler
+# Compendium — LLM Wiki
 
 ## Product Requirements Document
 
 | Field | Value |
 |---|---|
-| **Version** | 2.0 |
+| **Version** | 3.0 |
 | **Date** | 2026-04-04 |
 | **Product Manager** | Ali Naserifar |
 | **Status** | Draft |
 | **Confidentiality** | Personal Project |
+| **Source** | Based on Andrej Karpathy's "LLM Wiki" pattern document (2026) |
 
 ---
 
 ## 1. Executive summary
 
-> **One-liner:** A local-first desktop app where AI compiles your research sources into a living, queryable knowledge wiki that grows smarter with every interaction.
+> **One-liner:** A local-first tool where an LLM incrementally compiles your raw sources into a persistent, interlinked wiki — a compounding knowledge artifact that gets richer with every source you add and every question you ask.
 
-Knowledge workers today juggle hundreds of sources across papers, articles, repos, and datasets. They read, highlight, and forget. Existing tools like Notion AI and NotebookLM treat sources as static inputs for Q&A, but never synthesize them into persistent, interconnected knowledge structures. The result: every research session starts from scratch.
+Most people's experience with LLMs and documents looks like RAG: upload files, retrieve chunks at query time, generate an answer. The LLM rediscovers knowledge from scratch on every question. Nothing accumulates. Ask a subtle question that requires synthesizing five documents, and the LLM has to find and piece together the relevant fragments every time. NotebookLM, ChatGPT file uploads, and most RAG systems work this way.
 
-Compendium changes this. An LLM reads your raw sources and compiles them into an interlinked markdown wiki with concept articles, backlinks, indexes, and summaries. When you ask questions, answers are grounded in your wiki. When you file outputs back, the wiki grows. When the system runs health checks, it self-heals. Your knowledge compounds.
+Compendium is different. Instead of retrieving from raw documents at query time, the LLM **incrementally builds and maintains a persistent wiki** — a structured, interlinked collection of markdown files that sits between you and the raw sources. When you add a new source, the LLM doesn't just index it. It reads it, extracts key information, and integrates it into the existing wiki — updating entity pages, revising topic summaries, noting contradictions, strengthening or challenging the evolving synthesis. The knowledge is **compiled once and kept current**, not re-derived on every query.
 
-### The core insight
+### The core difference
 
-**The compilation step is the entire product.** Nobody else does LLM-as-author synthesis into a navigable, growing knowledge graph. NotebookLM comes closest but is cloud-only, Google-locked, and treats sources as read-only. Compendium's wiki is a living artifact that the LLM writes, maintains, and operates on.
+The wiki is a **persistent, compounding artifact**. The cross-references are already there. The contradictions have already been flagged. The synthesis already reflects everything you've read. A single new source might touch 10–15 wiki pages. Your explorations and queries file back as new pages, so they compound too.
+
+You never (or rarely) write the wiki yourself. The LLM writes and maintains all of it. **You curate sources, direct the analysis, ask good questions, and think about what it all means. The LLM does everything else** — summarizing, cross-referencing, filing, and the bookkeeping that makes a knowledge base actually useful over time.
+
+> The idea is related in spirit to Vannevar Bush's **Memex** (1945) — a personal, curated knowledge store with associative trails between documents. Bush's vision was closer to this than to what the web became: private, actively curated, with the connections between documents as valuable as the documents themselves. The part he couldn't solve was who does the maintenance. The LLM handles that.
 
 ---
 
 ## 2. Problem definition
 
-### 2.1 The research fragmentation problem
+### 2.1 Why humans abandon knowledge bases
 
-Researchers, analysts, and content creators face a compounding fragmentation problem:
+The tedious part of maintaining a knowledge base is not the reading or the thinking — it's the **bookkeeping**. Updating cross-references, keeping summaries current, noting when new data contradicts old claims, maintaining consistency across dozens of pages. Humans abandon wikis because the maintenance burden grows faster than the value. LLMs don't get bored, don't forget to update a cross-reference, and can touch 15 files in one pass. The wiki stays maintained because the cost of maintenance is near zero.
 
-- **Volume:** A typical PhD researcher reads 200+ papers per year. An analyst covering a sector tracks 50+ sources weekly. A podcaster with diverse interests (like Nakh) may accumulate 500+ reference documents across psychology, philosophy, behavioral economics, and systems thinking.
-- **Isolation:** Each source lives in its own silo. Cross-referencing requires manual effort. The insight that connects Paper A's methodology to Dataset B's findings goes undiscovered.
-- **Decay:** Knowledge extracted in one session is lost by the next. Notes become stale. Summaries are never updated. There is no persistent, queryable representation of accumulated learning.
-- **No synthesis:** Existing AI tools answer questions against sources, but never produce new knowledge artifacts. The output is ephemeral chat messages, not durable research infrastructure.
+### 2.2 The fragmentation problem
 
-### 2.2 Why existing solutions fail
+- **Volume:** A researcher reads 200+ papers/year. A podcaster with diverse interests accumulates 500+ reference documents across psychology, philosophy, behavioral economics, and systems thinking.
+- **Isolation:** Each source is siloed. Cross-referencing requires manual effort. The insight connecting Paper A's methodology to Dataset B's findings goes undiscovered.
+- **Decay:** Knowledge extracted in one session is lost by the next. No persistent, queryable representation of accumulated learning.
+- **No synthesis:** Existing AI tools answer questions against sources but never produce new knowledge artifacts. Output is ephemeral chat, not durable infrastructure.
 
-| Tool | Sources | Synthesis | Compounding | Ownership |
-|---|---|---|---|---|
-| **NotebookLM** | Upload-based | Q&A + Audio. No wiki output | None — sessions are stateless | Cloud-only, Google-locked |
-| **Notion AI** | In-page content | Shallow — per-page summaries | None — no feedback loop | Cloud SaaS, vendor-owned |
-| **Obsidian + AI plugins** | Local vault | Plugin-dependent, fragmented | Manual only | Local files, user-owned |
-| **Mem.ai** | Auto-captured | Memory-based recall | Partial — memory grows | Cloud SaaS |
-| **RAG pipelines** | Any document | Retrieval only, no generation | None — infrastructure layer | Self-hosted, requires engineering |
-| **Compendium** | **Any source (web clip + drop)** | **Full wiki compilation** | **Feedback loop + self-healing lint** | **Local-first, user-owned** |
+### 2.3 Why existing solutions fail
 
-**Key differentiator:** Compendium is the only system where the LLM is the *author* of a persistent, interlinked knowledge artifact — not just a reader/answerer of source documents.
+| Tool | How it works | What's missing |
+|---|---|---|
+| **NotebookLM** | Upload sources → Q&A + Audio Overview | Sources are read-only. No wiki output. Sessions are stateless. Nothing compounds. Cloud-only, Google-locked. |
+| **ChatGPT file uploads** | Upload files → RAG retrieval at query time | Re-derives knowledge from scratch every question. No persistent structure. No cross-referencing. |
+| **Notion AI** | In-page AI summaries | Shallow, per-page only. No cross-source synthesis. No feedback loop. Cloud SaaS. |
+| **Obsidian + AI plugins** | Local vault + plugin ecosystem | Plugin-dependent, fragmented. No compilation pipeline. Manual cross-referencing. |
+| **Mem.ai** | Auto-captured memory | Memory-based recall, not structured synthesis. Cloud. |
+| **RAG pipelines** | Embed → retrieve → generate | Infrastructure, not product. No persistent artifact. No compilation. |
+| **Compendium** | **Raw → LLM-compiled wiki → query + file back** | **Full synthesis, compounding feedback loop, self-healing lint, local-first, git-native** |
 
----
-
-## 3. Target users & personas
-
-### 3.1 Primary: The deep researcher
-
-**Profile:** PhD students, independent researchers, think-tank analysts managing 50–500+ sources on a focused domain. They spend 40%+ of their time on literature synthesis rather than original analysis.
-
-> **JTBD:** "When I accumulate 30+ papers on a topic, I want something to read all of them and build me a navigable knowledge structure, so I can focus on generating insights instead of organizing information."
-
-### 3.2 Secondary: The knowledge podcaster / content creator
-
-**Profile:** Content creators covering diverse topics who need to rapidly synthesize multi-domain research into original content. Research breadth is wide, depth is variable.
-
-> **JTBD:** "When I'm preparing a podcast episode on a new topic, I want to build a focused knowledge base from 10–20 sources that I can interactively query during preparation and even on a run via voice mode."
-
-### 3.3 Tertiary: The competitive intelligence analyst
-
-**Profile:** Analysts at investment firms, consulting shops, or strategy teams who continuously track a market and need a living competitive map.
-
-> **JTBD:** "When I track 15 competitors across 100+ data points, I want a system that maintains an up-to-date competitive wiki and alerts me to contradictions or gaps when new data arrives."
+**Key differentiator:** In every other system, the LLM is a *reader* of documents. In Compendium, the LLM is the *author* of a persistent knowledge artifact.
 
 ---
 
-## 4. Product vision & positioning
+## 3. Use cases
 
-> **Positioning statement:** For researchers and knowledge workers who drown in fragmented sources, Compendium is a local-first knowledge compiler that uses AI to build and maintain a living wiki from your raw materials. Unlike NotebookLM which treats sources as read-only, Compendium's wiki grows with every interaction.
+The pattern applies to many contexts. Compendium should support all of these:
 
-### 4.1 Product principles
-
-- **Local-first, always.** Your research stays on your disk. No telemetry, no cloud dependency for core workflows. API calls are your choice (BYOM).
-- **LLM writes, human directs.** You never manually edit the wiki. The LLM is the author; you are the editor-in-chief.
-- **Every interaction compounds.** Q&A outputs file back into the wiki. Linting discovers new connections. Positive feedback loops by design.
-- **Bring your own model.** No vendor lock-in. Support Claude, GPT, Gemini, and local Ollama.
-- **Transparent costs.** Token usage displayed per operation. Users control their inference budget explicitly.
-
----
-
-## 5. Success metrics
-
-| Objective | Key metric | Baseline | Target | Timeline |
-|---|---|---|---|---|
-| Validate compilation quality | User rating of wiki accuracy | N/A | ≥4.2 / 5.0 | 3 mo |
-| Prove compounding loop | % of Q&A outputs filed back | 0% | ≥50% | 3 mo |
-| Demonstrate retention | 30-day user retention | N/A | ≥65% | 6 mo |
-| Reduce synthesis time | Time to produce summary vs. manual | ~4 hrs | ≤1.5 hrs | 3 mo |
-| Validate BYOM model | % users with non-default LLM | 100% default | ≥40% multi | 3 mo |
-| Control cost perception | % rating cost "acceptable" | N/A | ≥75% | 3 mo |
+| Use case | Sources | Wiki becomes |
+|---|---|---|
+| **Research deep-dive** | Papers, articles, reports | Comprehensive topic wiki with evolving thesis |
+| **Podcast production** | Articles, books, transcripts, notes | Per-episode knowledge bases across diverse domains |
+| **Reading a book** | Chapter-by-chapter filing | Character pages, theme pages, plot threads, connections — like a personal Tolkien Gateway |
+| **Personal self-tracking** | Journal entries, health data, articles, podcast notes | Structured picture of yourself over time |
+| **Business/team intelligence** | Slack threads, meeting transcripts, project docs, customer calls | Living internal wiki maintained by LLM, humans review |
+| **Competitive analysis** | Company filings, news, product updates | Living competitive map with contradiction alerts |
+| **Course notes** | Lectures, textbooks, assignments | Study wiki with concept pages and prerequisites |
+| **Due diligence** | Financial docs, legal filings, interviews | Structured assessment with flagged risks |
 
 ---
 
-## 6. Key features & functionality
+## 4. Architecture — three layers
 
-### 6.1 Feature map
+This is the foundational architecture. Everything else builds on these three layers:
 
-| Feature | Description | User benefit | Pri. | Success signal |
-|---|---|---|---|---|
-| Source ingestion | Web clipper + file drop. HTML→MD with local images | One-click capture | P0 | ≥95% fidelity |
-| Wiki compilation engine | 6-step LLM pipeline: summarize → extract → generate → link → index → conflicts | Raw → knowledge graph | P0 | ≥1 article/2 sources |
-| Incremental compilation | Diff-based updates via dependency graph | Fast, cheap updates | P0 | <30s per source |
-| Q&A engine | Chat + CLI. Index-first retrieval within token budget | Multi-hop answers | P0 | ≥80% citation accuracy |
-| Feedback filing | One-click output → wiki article with auto-backlinks | Compounding KB | P0 | ≥50% outputs filed |
-| Output rendering | MD reports, Marp slides, matplotlib charts | Rich deliverables | P1 | 3+ types used |
-| Wiki linting | Health checks: contradictions, broken links, gaps, stale content | Self-healing KB | P1 | ≥80% actionable |
-| Graph viewer | Interactive node-edge visualization | Knowledge shape | P1 | 60%+ users |
-| Search engine | Full-text + semantic. Web UI + CLI for LLM | Fast retrieval | P1 | p95 <2s |
-| BYOM config | Claude/GPT/Gemini/Ollama. Per-operation model selection | No lock-in | P0 | ≥40% multi |
-| Obsidian export | Vault-compatible wikilinks and folder structure | Existing tools | P2 | 30%+ export |
-| Starter wikis | Domain scaffolds: ML, legal, investment | Fast onboarding | P2 | 25%+ adoption |
+### Layer 1: Raw sources (immutable)
 
-### 6.2 The compilation pipeline — core differentiator
+Your curated collection of source documents. Articles, papers, images, data files, CSVs. **These are immutable — the LLM reads from them but never modifies them.** This is your source of truth.
 
-- **Step 1 — Summarize:** Structured summary per source (claims, methodology, findings, limitations)
-- **Step 2 — Extract concepts:** NER + taxonomy → CONCEPTS.md topic tree
-- **Step 3 — Generate articles:** Per-concept synthesis across all sources, each claim traceable
-- **Step 4 — Create backlinks:** Bidirectional `[[wikilinks]]`, Obsidian-compatible
-- **Step 5 — Build index:** INDEX.md with one-line summaries, organized by category
-- **Step 6 — Conflict detection:** Contradictions flagged in CONFLICTS.md for human judgment
+- Format: .md files (converted from HTML/PDF), images in `raw/assets/`, data files as-is
+- Captured via: Obsidian Web Clipper (web articles), file drop (PDFs, local files), manual creation
+- Images downloaded locally (Obsidian hotkey: Ctrl+Shift+D) so LLM can reference them directly
+- Organized by: flat directory or light categorization — whatever fits the domain
 
-> **Why not RAG?** At ≤500 articles, LLM-maintained index files provide sufficient retrieval without vector databases. RAG adds unnecessary complexity at this scale.
+### Layer 2: The wiki (LLM-owned)
 
----
+A directory of LLM-generated markdown files. Summaries, entity pages, concept pages, comparisons, overview, synthesis. **The LLM owns this layer entirely.** It creates pages, updates them when new sources arrive, maintains cross-references, keeps everything consistent. You read it; the LLM writes it.
 
-## 7. Out of scope (v1.0)
+Page types in the wiki:
+- **Entity pages** — people, organizations, tools, datasets, etc.
+- **Concept pages** — ideas, theories, methodologies, frameworks
+- **Source summaries** — one page per ingested source with key takeaways
+- **Comparison pages** — cross-source analysis on specific dimensions
+- **Overview/synthesis** — high-level narrative of what the wiki covers
+- **`index.md`** — content-oriented catalog (see Section 6)
+- **`log.md`** — chronological record (see Section 6)
 
-- **Team collaboration / shared wikis** — v2
-- **Cloud sync / backup** — v2
-- **Mobile app** — future
-- **Fine-tuning / weight-baking** — premature
-- **Voice-mode Q&A** — compelling but deferred
-- **Third-party integrations** (Zotero, Mendeley) — file import is sufficient
-- **Multi-language compilation** — v1 is English-only
-- **Real-time co-editing** — separate product
+All pages use YAML frontmatter (tags, dates, source counts) for Obsidian Dataview queries.
 
----
+### Layer 3: The schema (co-evolved)
 
-## 8. Architecture decisions
+A document (e.g., `CLAUDE.md` for Claude Code, `AGENTS.md` for Codex) that tells the LLM how the wiki is structured, what the conventions are, and what workflows to follow when ingesting sources, answering questions, or maintaining the wiki.
 
-### 8.1 Local-first (non-negotiable)
-All data on local disk. Zero inference-cost server calls. User brings own API keys. Near-zero marginal cost per user.
+**This is the key configuration file** — it's what makes the LLM a disciplined wiki maintainer rather than a generic chatbot. You and the LLM co-evolve this over time as you figure out what works for your domain.
 
-### 8.2 Open core
-Engine + wiki format + CLI = open source (MIT). Revenue from sync, model routing, starter wikis, team features.
-
-### 8.3 Desktop app (Tauri / Rust)
-File system access critical. Tauri over Electron (~10MB vs ~150MB). Web companion for read-only.
-
-### 8.4 Wiki as flat markdown
-Not a database. Directory of .md files with YAML frontmatter, wikilinks, INDEX.md. Human-readable, git-friendly, Obsidian-compatible, portable.
+The schema defines:
+- Directory structure and naming conventions
+- Page templates and required frontmatter fields
+- Ingest workflow (what to update, in what order)
+- Cross-referencing rules (when to create links, what constitutes a "related" page)
+- Conflict resolution rules (how to handle contradictions)
+- Quality standards (minimum page length, required sections)
 
 ---
 
-## 9. Timeline & milestones
+## 5. Operations
 
-| Phase | Duration | Deliverables | Exit criteria | Key risk |
-|---|---|---|---|---|
-| 1 | Weeks 1–2 | Discovery, architecture, schema, prompt chain design | Schema approved | Scope creep |
-| 2 | Weeks 3–6 | Ingestion + compilation + incremental updates | 30 sources → wiki, <5% errors | Quality at scale |
-| 3 | Weeks 7–9 | Q&A engine, output rendering, feedback filing | ≥80% citation accuracy | Token budgets |
-| 4 | Weeks 10–12 | Tauri app, graph viewer, search, linting, BYOM | App launches, 100+ node graph | Performance |
-| 5 | Weeks 13–14 | Closed beta (50–100 users) | NPS ≥30, zero data-loss | Onboarding |
-| 6 | Week 15 | Public beta (PH, HN, OSS repo) | 1,000+ signups | Timing |
+Three core operations, documented in the schema:
+
+### 5.1 Ingest
+
+You drop a new source into raw/ and tell the LLM to process it.
+
+**Flow:** LLM reads source → discusses key takeaways with you → writes summary page → updates index → updates relevant entity and concept pages → appends log entry. A single source might touch 10–15 wiki pages.
+
+**Two modes:**
+- **Human-in-the-loop (recommended for early wiki):** Ingest one source at a time. Read the summaries, check the updates, guide the LLM on what to emphasize. Stay involved.
+- **Batch ingest (for mature wikis):** LLM processes many sources at once with less supervision. The schema is established enough that the LLM knows the conventions.
+
+> "After a while, the LLM 'gets' the pattern and the marginal document is a lot easier. You just say 'file this new doc to our wiki: [path]'."
+
+### 5.2 Query
+
+Ask questions against the wiki. The LLM reads `index.md` first to find relevant pages, then drills into them.
+
+**Output formats:** Markdown page, comparison table, slide deck (Marp), chart (matplotlib), interactive HTML (with JS for sorting/filtering), canvas.
+
+**Critical insight:** Good answers should be **filed back into the wiki** as new pages. A comparison you asked for, an analysis, a connection you discovered — these are valuable and shouldn't disappear into chat history. Your explorations compound in the knowledge base just like ingested sources do.
+
+### 5.3 Lint
+
+Periodically health-check the wiki. Look for:
+- Contradictions between pages
+- Stale claims that newer sources have superseded
+- Orphan pages with no inbound links
+- Important concepts mentioned but lacking their own page
+- Missing cross-references
+- Data gaps that could be filled with a web search
+
+The LLM is good at suggesting new questions to investigate and new sources to look for. Lint is generative, not just maintenance.
 
 ---
 
-## 10. Risks & open questions
+## 6. Indexing and logging
+
+Two special files that help both the LLM and you navigate the wiki:
+
+### `index.md` — content-oriented
+
+A catalog of everything in the wiki. Each page listed with a link, a one-line summary, and optionally metadata (date, source count). Organized by category (entities, concepts, sources, etc.). The LLM updates it on every ingest.
+
+**At query time:** the LLM reads the index first to find relevant pages, then drills into them. This works surprisingly well at moderate scale (~100 sources, ~hundreds of pages) and avoids the need for embedding-based RAG infrastructure.
+
+### `log.md` — chronological
+
+Append-only record of what happened and when — ingests, queries, lint passes.
+
+**Parseable format:** Each entry starts with a consistent prefix:
+```
+## [2026-04-02] ingest | Article Title
+## [2026-04-02] query | What are the main disagreements on X?
+## [2026-04-03] lint | Health check pass #4
+```
+
+This makes the log parseable with simple unix tools: `grep "^## \[" log.md | tail -5` gives you the last 5 entries. The log gives the LLM context on what's been done recently.
+
+---
+
+## 7. Feature map
+
+| Feature | Description | Priority | Success signal |
+|---|---|---|---|
+| **Web clipper ingestion** | Browser extension (Obsidian Web Clipper compatible) → raw/ with local images | P0 | ≥95% format fidelity |
+| **File drop ingestion** | PDF/MD/CSV/images → raw/ with auto-conversion | P0 | <10s per file |
+| **Compilation pipeline** | 6-step LLM chain: summarize → extract → generate → link → index → conflicts | P0 | ≥1 article per 2 sources |
+| **Incremental update** | Diff-based: new source updates only affected pages. Single source → 10–15 page touches. | P0 | <30s per source |
+| **Schema file** | CLAUDE.md/AGENTS.md defining wiki structure, conventions, workflows. Co-evolved. | P0 | Schema stabilizes by ~30 sources |
+| **index.md** | Content-oriented catalog with links, summaries, metadata. LLM's query entry point. | P0 | Accurate after every operation |
+| **log.md** | Append-only chronological log with parseable prefix format. | P0 | Every operation logged |
+| **Q&A engine** | Chat + CLI. Index-first retrieval → read pages → synthesized answer with citations. | P0 | ≥80% citation accuracy |
+| **Output rendering** | Markdown pages, Marp slides, matplotlib charts, interactive HTML with JS | P1 | 3+ formats used |
+| **Feedback filing** | File Q&A outputs back into wiki as new pages. Explorations compound. | P0 | ≥50% of outputs filed |
+| **Wiki linting** | Contradictions, stale claims, orphans, missing pages, gaps, suggested questions | P1 | ≥80% issues actionable |
+| **Graph viewer** | Obsidian graph view — see wiki shape, hubs, orphans, clusters | P1 | Used by ≥60% of users |
+| **Search engine** | CLI + MCP server. Consider qmd (BM25 + vector, on-device). LLM can shell out to it. | P1 | p95 <2s |
+| **BYOM config** | Claude/GPT/Gemini/Ollama. Per-operation model selection. Token dashboard. | P0 | ≥40% multi-provider |
+| **Dataview compatibility** | YAML frontmatter on all wiki pages for Obsidian Dataview queries | P2 | Frontmatter on 100% of pages |
+| **Git integration** | Wiki is a git repo. Version history, branching, diffing for free. | P1 | All changes committed |
+| **Obsidian export** | Full vault compatibility (wikilinks, folder structure, graph, Dataview) | P2 | Works as Obsidian vault |
+
+---
+
+## 8. Success metrics
+
+| Objective | Metric | Target | Timeline |
+|---|---|---|---|
+| Compilation quality | User accuracy rating | ≥4.2 / 5.0 | 3 mo |
+| Compounding loop works | % of Q&A outputs filed back | ≥50% | 3 mo |
+| Retention via data gravity | 30-day retention | ≥65% | 6 mo |
+| Synthesis time reduction | Time vs. manual | ≥60% reduction | 3 mo |
+| BYOM adoption | % with multiple providers | ≥40% | 3 mo |
+| Scale validation | Wiki size before quality degrades | ≥200 articles | 6 mo |
+
+---
+
+## 9. Architecture decisions
+
+### 9.1 Local-first (non-negotiable)
+
+All data on local disk. Zero server-side inference cost. User brings own API keys. The wiki is just a git repo of markdown files — you get version history, branching, and collaboration for free.
+
+### 9.2 Obsidian as the IDE
+
+Obsidian is not part of the product — it's the **viewing layer**. The LLM is the programmer; the wiki is the codebase; Obsidian is the IDE. Users can also use VS Code, Cursor, or any markdown editor. But Obsidian offers unique advantages: graph view, Marp plugin, Dataview plugin, Web Clipper, wikilink navigation.
+
+### 9.3 Open core
+
+Compilation engine + wiki format + CLI tools = open source (MIT). Revenue from sync, smart model routing, starter wiki templates, team features.
+
+### 9.4 Desktop app (Tauri / Rust)
+
+File system access critical. Tauri over Electron (~10MB vs ~150MB). Or: no custom app at all — just the LLM agent (Claude Code, Codex, OpenCode) + Obsidian. The pattern works without a dedicated UI.
+
+### 9.5 Schema co-evolution
+
+The schema is not static. You and the LLM co-evolve it as you learn what works for your domain. Early wikis need more human guidance; mature wikis have schemas that let the LLM operate with minimal supervision. This means the product's "onboarding" is actually the process of building your first 10–20 page wiki and shaping the schema together.
+
+### 9.6 Wiki as flat markdown
+
+Not a database. Directory of .md files with YAML frontmatter, wikilinks, index.md, log.md. Human-readable, git-friendly, Obsidian-compatible, trivially portable. The wiki is just files — the simplest possible data layer.
+
+### 9.7 No RAG (at moderate scale)
+
+At ≤200–500 articles, index.md + log.md + optional search CLI is sufficient. The LLM reads the index, follows links, reads pages. No embedding model, no vector store, no chunking strategy needed. If the wiki outgrows this, add qmd or similar as a search tool (BM25 + vector, on-device, with MCP server).
+
+---
+
+## 10. Target users & personas
+
+### 10.1 Primary: The deep researcher
+
+> **JTBD:** "When I accumulate 30+ papers on a topic, I want something to read all of them and build me a navigable knowledge structure, so I can focus on generating insights."
+
+### 10.2 Secondary: The knowledge podcaster
+
+> **JTBD:** "When I prep a podcast episode, I want to build a focused mini-wiki from 10–20 sources that I can query during prep and even on a run via voice mode."
+
+### 10.3 Tertiary: The book reader
+
+> **JTBD:** "When I read a complex novel, I want to file each chapter and have the LLM build character pages, theme pages, and plot threads — like my own personal Tolkien Gateway."
+
+### 10.4 Tertiary: The team/business user
+
+> **JTBD:** "When my team generates Slack threads, meeting transcripts, and project docs, I want an LLM to maintain a living internal wiki that stays current without anyone doing the maintenance."
+
+---
+
+## 11. Timeline & milestones
+
+Solo founder (Ali) + 1 contract dev. 15 weeks to public beta.
+
+| Phase | Duration | Deliverables | Exit criteria |
+|---|---|---|---|
+| 1 | Weeks 1–2 | Discovery: user interviews, schema v0 draft, prompt chain architecture, wiki format spec | Schema works for 5 test sources |
+| 2 | Weeks 3–6 | Core: ingestion pipeline + compilation engine (6-step) + incremental updates + index.md + log.md | 30 sources → wiki, <5% errors, index accurate |
+| 3 | Weeks 7–9 | Q&A + Output: query engine, output rendering (MD, Marp, charts, HTML), feedback filing loop | ≥80% citation accuracy, filing updates index |
+| 4 | Weeks 10–12 | Polish: Tauri shell (or Obsidian-only mode), graph view, search (qmd integration), linting, BYOM, git integration | App launches, lint detects 3+ issue types |
+| 5 | Weeks 13–14 | Closed beta: 50–100 power users | NPS ≥30, zero data-loss |
+| 6 | Week 15 | Public beta: Product Hunt, HN, OSS repo | 1,000+ signups |
+
+---
+
+## 12. Risks & open questions
+
+### 12.1 Risks
 
 | Risk | Impact | Prob. | Mitigation |
 |---|---|---|---|
-| Context windows grow to 10M+ tokens | High | Med | Wiki is cheaper, offline, navigable, persistent |
-| NotebookLM ships local + compilation | High | Low | Open ecosystem + BYOM + plugins = switching cost |
-| Wiki entropy at 200+ articles | High | High | Linting + conflict detection + quality SLAs |
-| API cost uneconomical | Med | Med | Diff-based compilation, token budgets, caching |
-| Users expect RAG recall at >2M words | Med | High | Expectations in onboarding, hybrid search bridge |
+| Context windows grow to 10M+ tokens | High | Med | Wiki is cheaper, offline, navigable, persistent, git-versioned. Raw context dump has no structure. |
+| NotebookLM ships local + wiki compilation | High | Low | Open ecosystem + BYOM + community. First-mover in OSS wiki compiler. |
+| Wiki entropy at scale (200+ articles) | High | High | Linting + conflict detection + quality SLAs per compile pass. |
+| API cost makes heavy usage uneconomical | Med | Med | Diff-based compilation, token budgets, caching. Knowledge compiled once, not re-derived per query. |
+| Users expect RAG recall at >500 articles | Med | High | Clear scale expectations. Add qmd search at threshold. |
+| Schema co-evolution is too confusing for new users | Med | Med | Starter schemas per domain. Guided onboarding wizard. |
 
-| Open question | Owner | Deadline |
+### 12.2 Open questions
+
+| Question | Owner | Deadline |
 |---|---|---|
-| Flat vs. nested wiki directory schema? | Ali | Week 3 |
-| Build or fork web clipper? | Ali | Week 3 |
-| RAG threshold wiki size? | Ali | Week 9 |
-| Prompt chain: mega-prompt vs. multi-step? | Ali | Week 2 |
-| Revenue: freemium vs. paid license? | Ali | Week 12 |
+| Optimal wiki page types per domain? (entity, concept, comparison, synthesis) | Ali | Week 2 |
+| Build custom app or ship as pure LLM agent + Obsidian pattern? | Ali | Week 3 |
+| Index-first retrieval ceiling: how many pages before search CLI is required? | Ali | Week 9 |
+| Prompt chain: single mega-prompt vs. multi-step pipeline per ingest? | Ali | Week 2 |
+| Schema templating: how much should be pre-built vs. co-evolved per user? | Ali | Week 6 |
+| Revenue: freemium (open core + paid sync/team) vs. pattern-only (educational)? | Ali | Week 12 |
+| qmd vs. custom search: build or adopt? | Ali | Week 10 |
 
 ---
 
-## 11. Business model
+## 13. Business model
 
 | Stream | Price | Value | Timing |
 |---|---|---|---|
-| Open core (free) | — | Full engine, CLI, viewer, single LLM | Launch |
-| Pro | $12/mo | Sync, smart routing, priority linting | Month 3 |
-| Starter wiki marketplace | $30–99 | Domain scaffolds | Month 5 |
-| Team tier | $15/seat/mo | Shared wikis, roles, merge | Month 9 |
-| Enterprise | Custom | SSO, audit, on-prem | Month 12+ |
+| Open core (free) | — | Compilation engine, CLI tools, schema templates, Obsidian integration | Launch |
+| Pro | $12/mo | Cross-device sync, smart model routing, priority linting | Month 3 |
+| Starter wiki marketplace | $30–99 | Pre-built schemas + starter pages: ML Research, Legal, Investment, Book Club | Month 5 |
+| Team tier | $15/seat/mo | Shared wikis, role-based access, Slack/meeting transcript ingestion | Month 9 |
+| Enterprise | Custom | SSO, audit, on-prem, custom compilation pipelines | Month 12+ |
 
 ### Defensibility
 
-- **Wiki format spec** becomes the standard
-- **Plugin ecosystem** creates network effects
-- **Data gravity** — switching cost grows with wiki size (the Obsidian playbook)
-- **Compilation quality** — proprietary prompt chains improve with usage
+- **Wiki format spec** becomes the standard for LLM-compiled knowledge bases
+- **Schema ecosystem** — community-contributed schemas per domain (the "dotfiles" of knowledge work)
+- **Data gravity** — switching cost grows with wiki size. 400K words + thousands of backlinks = deep lock-in.
+- **Compilation quality** — proprietary prompt chains that handle incremental updates, conflicts, and quality scoring
 
 ---
 
-## 12. Non-functional requirements
+## 14. Non-functional requirements
 
-- **Performance:** Compilation <30s per source. Q&A p95 <15s. Graph 200+ nodes at 60fps.
-- **Scale:** Up to 2M words / 500 articles without degradation.
-- **Privacy:** Zero telemetry on content. API keys in OS keychain.
-- **Reliability:** Atomic compilation via staging. Failed compiles never corrupt state.
-- **Cost transparency:** Per-operation token usage with USD estimates.
-- **Offline:** Viewer + search + graph fully offline. LLM ops need API (unless Ollama).
-- **Portability:** Plain .md on disk. Git-friendly. Obsidian-compatible. Zero lock-in.
+- **Performance:** Ingest <30s/source. Q&A p95 <15s. Graph renders 200+ nodes at 60fps.
+- **Scale:** Up to 2M words / 500 articles without degradation. qmd search beyond that.
+- **Privacy:** Zero telemetry. API keys in OS keychain. No data leaves machine except LLM API calls.
+- **Reliability:** Compilation atomic via staging. Failed compiles never corrupt wiki. Git provides rollback.
+- **Cost transparency:** Token usage per operation with USD estimates. Dashboard.
+- **Offline:** Viewer, search, graph fully offline. LLM operations need API (unless Ollama).
+- **Portability:** Plain .md on disk. Git repo. Obsidian-compatible. Zero lock-in.
+
+---
+
+## 15. Tooling & tips
+
+- **Obsidian Web Clipper:** Browser extension converting web articles to markdown. Primary ingestion path.
+- **Local image download:** Obsidian Settings → Files/links → fixed attachment folder. Hotkey (Ctrl+Shift+D) downloads all images locally so LLM can reference them.
+- **Obsidian graph view:** Best way to see wiki shape — hubs, orphans, clusters.
+- **Marp:** Markdown slide deck format. Obsidian plugin available. Generate presentations from wiki content.
+- **Dataview:** Obsidian plugin for queries over page frontmatter. Dynamic tables and lists from YAML metadata.
+- **qmd:** Local search engine for markdown files. BM25 + vector search, LLM re-ranking, on-device. CLI + MCP server.
+- **Git:** The wiki is just a repo. Version history, branching, diffing for free. Every compilation is a commit.

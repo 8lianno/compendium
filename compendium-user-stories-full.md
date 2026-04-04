@@ -1,8 +1,9 @@
-# Compendium — User Stories
+# Compendium — User Stories v3
 
 **Product Manager:** Ali Naserifar  
 **Date:** 2026-04-04  
-**Status:** Draft — Ready for Discovery
+**Status:** Draft  
+**Source:** Updated from Andrej Karpathy's "LLM Wiki" pattern document
 
 ---
 
@@ -10,14 +11,12 @@
 
 ---
 
-### US-001: Web source ingestion via clipper
+### US-001: Web source ingestion via Obsidian Web Clipper
 
 #### 1) Story information
 
 - **Title:** Web source ingestion via clipper
 - **ID:** US-001
-- **Author:** Product Manager — Ali Naserifar
-- **Created date:** 2026-04-04
 - **Priority:** P0
 - **Target release:** v1.0 — Phase 2 (Weeks 3–6)
 - **Status:** Draft
@@ -26,113 +25,91 @@
 #### 2) User story
 
 *As a* **researcher browsing the web**  
-*I want* **to clip a web article into my knowledge base with one click**  
-*So that* **it's captured as clean markdown with local images, ready for LLM compilation**
+*I want* **to clip a web article into my raw/ collection with one click**  
+*So that* **it's captured as clean immutable markdown with local images, ready for LLM compilation**
 
-**JTBD:** "When I find a relevant article while browsing, I want to instantly save it to my raw/ directory without manual formatting, so I can keep researching without breaking flow."
+**JTBD:** "When I find a relevant article, I want to instantly save it to raw/ without manual formatting, so I can keep researching without breaking flow."
 
 #### 3) Business context
 
-- **Problem:** Manual copy-paste loses formatting, images break (external URLs rot), source attribution is lost. Researchers lose 15–30 min per source on manual preprocessing.
-- **Goal:** One-click web-to-markdown ingestion with zero broken references.
-- **Scope (in):**
-  - Browser extension (Chrome + Firefox)
-  - HTML → clean markdown conversion (Mozilla Readability or equivalent)
-  - All images downloaded to local `raw/images/[source-slug]/`
-  - YAML frontmatter with: title, source URL, author, clip date, word count
-  - Duplicate detection by URL
-- **Out of scope:**
-  - PDF ingestion (US-002)
-  - Video/audio transcription
-  - Social media scraping
-  - Paywall bypass
-- **Success metrics:**
-  - Clip-to-raw completion in <5 seconds
-  - ≥95% formatting fidelity (tables, code blocks, headings preserved)
-  - Zero broken image links in output
-  - <2% duplicate clips per user per month
-- **Assumptions / constraints:**
-  - User has Chrome or Firefox
-  - Target pages have extractable article content (not SPAs with JS-only rendering)
-  - Extension communicates with desktop app via local WebSocket
+- **Problem:** Manual copy-paste loses formatting, images break (URL rot), source attribution is lost
+- **Scope (in):** Obsidian Web Clipper integration (or custom extension), HTML→markdown, image download to `raw/assets/`, YAML frontmatter, duplicate detection by URL
+- **Out of scope:** PDF ingestion (US-002), video/audio, paywall bypass, social media scraping
+- **Success metrics:** Clip-to-raw <5 seconds, ≥95% formatting fidelity, zero broken image links
+- **Constraints:** Raw sources are **immutable** — the LLM reads from them but never modifies them. This is the source of truth.
 
 #### 4) Acceptance criteria (BDD)
 
 **Scenario: Successful web clip**  
-**Given** the user is viewing an article in their browser with the Compendium extension installed  
-**When** the user clicks the Compendium clip button  
-**Then** the article is converted to clean markdown and saved to `raw/[source-slug].md`  
-**And** all referenced images are downloaded to `raw/images/[source-slug]/`  
-**And** image paths in markdown are updated to local relative references  
-**And** YAML frontmatter is added: title, source URL, clip date, author (if detectable), word count  
-**And** a success notification appears in the extension: "Clipped: [title] (2,340 words)"
+**Given** the user is viewing an article with the clipper extension installed  
+**When** the user clicks the clip button  
+**Then** the article is converted to markdown and saved to `raw/[slug].md`  
+**And** all images are downloaded to `raw/assets/[slug]/` (or via Obsidian's Ctrl+Shift+D hotkey)  
+**And** image paths in markdown updated to local references  
+**And** YAML frontmatter added: `title`, `source_url`, `clipped_at`, `author`, `word_count`, `status: raw`  
+**And** the file is **immutable** — never modified by the LLM after creation
 
 **Scenario: Article with no extractable content**  
-**Given** the user is on a page with no article body (login page, SPA with JS-only rendering)  
-**When** the user clicks the clip button  
-**Then** the system displays "Could not extract article content from this page"  
-**And** offers the option to save raw HTML as fallback with tag `format: html-raw` in frontmatter
+**Given** the page has no article body (login page, JS-only SPA)  
+**When** the user clips  
+**Then** display: "Could not extract content from this page"  
+**And** offer raw HTML fallback with `format: html-raw` in frontmatter
 
 **Scenario: Network failure during image download**  
-**Given** the article is clipped but some images fail to download (CDN timeout, 403)  
-**When** the clip completes  
-**Then** the markdown file is saved with successfully downloaded images using local paths  
-**And** failed images retain their original URLs with a `<!-- [REMOTE: download failed] -->` comment  
-**And** a warning is shown: "3 of 12 images could not be downloaded locally"
+**Given** some images fail to download  
+**When** clip completes  
+**Then** markdown saved with working local images  
+**And** failed images retain original URLs with `<!-- [REMOTE: download failed] -->` comment  
+**And** warning: "3 of 12 images not downloaded locally"
 
 **Scenario: Duplicate source URL**  
-**Given** a raw file already exists with the same source URL in frontmatter  
-**When** the user clips the same URL again  
-**Then** the system prompts: "This article was already clipped on [date]. Overwrite, keep both, or cancel?"  
-**And** if "keep both," the new file is suffixed with `-v2`
+**Given** a raw file with the same source URL exists  
+**When** user clips the same URL  
+**Then** prompt: "Already clipped on [date]. Overwrite, keep both, or cancel?"
 
-**Scenario: Desktop app not running**  
-**Given** the extension is installed but the Compendium desktop app is not running  
-**When** the user clicks the clip button  
-**Then** the extension displays: "Compendium desktop app is not running. Please start it and try again."
+**Scenario: Image download via Obsidian hotkey**  
+**Given** user clipped an article and images are still remote URLs  
+**When** user presses Ctrl+Shift+D in Obsidian  
+**Then** all images download to the configured `raw/assets/` directory  
+**And** markdown image references auto-update to local paths
 
 #### 5) Functional requirements
 
-- **FR-01 [Input]:** Extension sends page URL + full HTML to desktop app via local WebSocket (port 17394)
-- **FR-02 [Extraction]:** Uses Readability algorithm for article body extraction. Falls back to full `<body>` if Readability confidence is below threshold.
-- **FR-03 [Conversion]:** HTML → CommonMark with GFM extensions (tables, task lists, strikethrough). Code blocks preserve language hints.
-- **FR-04 [Images]:** Downloaded as original format (PNG/JPG/WebP/SVG/GIF). Filenames slugified. Max 20MB per image, skip larger with warning.
-- **FR-05 [Frontmatter]:** YAML block with: `title`, `source_url`, `author`, `clipped_at` (ISO 8601), `word_count`, `format: markdown`, `status: raw`
-- **FR-06 [Dedup]:** Check `source_url` against all existing raw/ frontmatter. Content hash as secondary dedup for different URLs with identical content.
-- **FR-07 [File naming]:** Slug generated from title, max 80 chars, lowercase, hyphens only.
+- **FR-01:** Compatible with Obsidian Web Clipper extension (preferred) or custom extension
+- **FR-02:** HTML → CommonMark with GFM (tables, code blocks, task lists)
+- **FR-03:** Images saved as original format, max 20MB each
+- **FR-04:** Frontmatter: `title`, `source_url`, `author`, `clipped_at` (ISO 8601), `word_count`, `format`, `status: raw`
+- **FR-05:** URL-based dedup + content hash as secondary check
+- **FR-06:** File slug from title, max 80 chars, lowercase, hyphens
+- **FR-07:** Raw files are immutable post-creation — no LLM writes to raw/
 
 #### 6) UX / UI requirements
 
-- **Extension popup:** Minimal — clip button, status indicator (idle / clipping / success / error), link to open in desktop app
-- **Success state:** Green checkmark + title + word count, auto-dismisses after 3 seconds
-- **Error state:** Red icon + error message + retry button. Persistent until dismissed.
-- **Desktop notification:** Optional system notification on successful clip (configurable in settings)
-- **Accessibility:** Extension popup keyboard-accessible, ARIA labels on all interactive elements
+- Extension popup: clip button, status indicator, link to open in Obsidian
+- Success: green checkmark + title + word count, auto-dismiss 3s
+- Error: persistent red message + retry button
 
 #### 7) Edge cases
 
-- Paywalled content: clip whatever is visible; add `partial: true` in frontmatter
+- Paywalled content: clip visible portion, `partial: true` in frontmatter
 - Very long articles (>20K words): clip fully, no truncation
-- Non-English content: preserve original language, set `language: [detected]` in frontmatter
-- Tables: convert to markdown tables; complex nested tables fall back to HTML `<table>` blocks
-- Math notation (LaTeX in HTML): preserve as-is in markdown code blocks with `math` tag
-- Redirecting URLs: follow redirects, store final URL in frontmatter, original in `original_url`
-- SVG images: download and reference locally; inline SVGs embedded directly in markdown
+- Non-English: preserve language, set `language: [detected]`
+- Tables: markdown tables; complex nested → HTML `<table>` blocks
+- Math (LaTeX): preserve in code blocks with `math` tag
+- LLM image reading: LLM reads markdown text first, then views referenced images separately (can't do both in one pass)
 
 #### 8) Non-functional requirements
 
-- **Performance:** Clip-to-saved <5 seconds for articles <5,000 words with <20 images
-- **Capacity:** Handle articles up to 50K words without timeout
-- **Security:** Extension requests minimal permissions (activeTab only). No external analytics.
-- **Audit:** Each clip logged in `raw/.clip-log.json` with timestamp, URL, outcome, file path
+- **Performance:** <5s for articles <5,000 words with <20 images
+- **Security:** Extension requires minimal permissions (activeTab only)
+- **Audit:** Clips logged in `raw/.clip-log.json`
 
 #### 9) Definition of done
 
-- All acceptance criteria met and demonstrated
-- Extension published in Chrome Web Store and Firefox Add-ons (or sideloadable for beta)
-- Unit tests cover Readability extraction for 10+ diverse page layouts
-- Integration test: clip → file exists in raw/ → frontmatter valid → images present
-- Documentation updated in README
+- Extension works in Chrome and Firefox (or Obsidian Web Clipper workflow documented)
+- Tested on 10+ diverse page layouts
+- Frontmatter consistent across all clipped sources
+- Image download hotkey workflow documented
 
 ---
 
@@ -142,8 +119,6 @@
 
 - **Title:** Local file drop ingestion
 - **ID:** US-002
-- **Author:** Product Manager — Ali Naserifar
-- **Created date:** 2026-04-04
 - **Priority:** P0
 - **Target release:** v1.0 — Phase 2
 - **Status:** Draft
@@ -152,100 +127,66 @@
 #### 2) User story
 
 *As a* **researcher with local files**  
-*I want* **to drag and drop PDFs, markdown files, CSVs, and images into my knowledge base**  
-*So that* **any local research material is captured in raw/ for compilation**
-
-**JTBD:** "When I download a paper or dataset, I want to drop it into Compendium and have it auto-converted to the right format, so I don't need to manually preprocess anything."
+*I want* **to drag-drop PDFs, markdown, CSVs, and images into raw/**  
+*So that* **any local material is captured as immutable source documents for compilation**
 
 #### 3) Business context
 
-- **Problem:** Researchers accumulate files in scattered directories; manual conversion is friction that prevents systematic knowledge capture
-- **Scope (in):** PDF→markdown (with OCR fallback), .txt/.md passthrough, .csv/.tsv preservation, image cataloging, batch drop (up to 50 files)
-- **Out of scope:** .docx conversion (P2), audio/video transcription, cloud storage integration
-- **Success metrics:**
-  - File ingestion in <10s for files <50MB
-  - ≥90% text extraction accuracy from PDFs
-  - Zero data loss on batch drops of ≤50 files
+- **Scope (in):** PDF→markdown (OCR fallback), .txt/.md passthrough, .csv/.tsv preservation, image cataloging, batch drop (up to 50 files). Original files preserved in `raw/originals/`.
+- **Out of scope:** .docx conversion (P2), audio/video transcription
+- **Constraint:** All raw files are immutable after ingestion.
 
 #### 4) Acceptance criteria (BDD)
 
 **Scenario: PDF file drop**  
-**Given** the user drags a PDF file into the Compendium drop zone  
-**When** the file is processed  
-**Then** text is extracted and saved as `raw/[filename].md` with YAML frontmatter  
-**And** embedded images are extracted to `raw/images/[filename]/`  
-**And** original PDF is preserved in `raw/originals/[filename].pdf`  
-**And** frontmatter includes: title (from PDF metadata or first heading), source: `local`, format: `pdf-extracted`, page_count, word_count
+**Given** user drags a PDF into the drop zone  
+**When** processed  
+**Then** text extracted as `raw/[filename].md` with frontmatter  
+**And** images extracted to `raw/assets/[filename]/`  
+**And** original PDF preserved in `raw/originals/`  
+**And** file is immutable after creation
 
-**Scenario: Scanned PDF (image-only pages)**  
-**Given** the user drops a PDF with no extractable text (scanned document)  
-**When** the system detects zero text in extraction  
-**Then** OCR (Tesseract) is applied automatically  
-**And** the output markdown is tagged `ocr: true` in frontmatter  
-**And** a confidence score is included: `ocr_confidence: 0.87`
-
-**Scenario: Markdown file drop**  
-**Given** the user drags an existing .md file  
-**When** the file is processed  
-**Then** it is copied to raw/ with frontmatter prepended (source: `local`, date, filename)  
-**And** any relative image paths are resolved and images copied to `raw/images/`
+**Scenario: Scanned PDF (image-only)**  
+**Given** PDF has no extractable text  
+**When** system detects zero text  
+**Then** OCR (Tesseract) applied automatically  
+**And** frontmatter tagged `ocr: true`, `ocr_confidence: 0.87`
 
 **Scenario: Batch drop of 30 files**  
-**Given** the user drops 30 mixed files (PDFs + MDs + CSVs)  
+**Given** user drops 30 mixed files  
 **When** processing begins  
-**Then** a progress bar shows: "Processing 14 of 30..."  
-**And** errors on individual files do not block the rest  
-**And** a summary appears: "28 files ingested, 2 failed (see error log)"
+**Then** progress bar: "Processing 14 of 30..."  
+**And** errors per file don't block others  
+**And** summary: "28 ingested, 2 failed (see log)"
 
 **Scenario: Unsupported file type**  
-**Given** the user drops a .mp4 or .zip file  
-**When** the system detects unsupported format  
-**Then** it displays "Unsupported file type: .mp4. Supported: PDF, MD, TXT, CSV, TSV, PNG, JPG, SVG"
+**Given** user drops .mp4 or .zip  
+**Then** display: "Unsupported: .mp4. Supported: PDF, MD, TXT, CSV, TSV, PNG, JPG, SVG"
 
 **Scenario: Duplicate content hash**  
-**Given** a file with identical content hash already exists in raw/  
-**When** the user drops the duplicate  
-**Then** the system prompts: "This file has identical content to [existing-file]. Skip or keep both?"
+**Given** identical content already in raw/  
+**Then** prompt: "Identical content exists: [file]. Skip or keep both?"
 
 #### 5) Functional requirements
 
-- **FR-01:** Drop zone in desktop app accepts drag-and-drop and file picker dialog
-- **FR-02:** PDF extraction uses `pdf-parse` + Tesseract OCR fallback for image-only pages
-- **FR-03:** CSV/TSV files copied as-is with frontmatter prepended describing columns and row count
-- **FR-04:** Image files (PNG/JPG/SVG) cataloged in `raw/images/standalone/` with metadata frontmatter
-- **FR-05:** Batch processing: parallel up to 5 files, sequential beyond. Error isolation per file.
-- **FR-06:** Content hash (SHA-256) computed for deduplication
-- **FR-07:** Original files preserved in `raw/originals/` (never modified)
-
-#### 6) UX / UI requirements
-
-- **Drop zone:** Full-width area in ingestion tab, dashed border, "Drop files here or click to browse" label
-- **Progress:** Individual file progress + overall batch progress bar
-- **Error detail:** Expandable error log per failed file with specific reason
-- **States:** idle → processing (spinner + progress) → complete (green summary) → error (red per-file)
+- **FR-01:** Drop zone + file picker. Batch ≤50 files with parallel processing (5 concurrent).
+- **FR-02:** PDF extraction: `pdf-parse` + Tesseract OCR fallback
+- **FR-03:** Content hash (SHA-256) for deduplication
+- **FR-04:** Original files always preserved in `raw/originals/`
+- **FR-05:** All files immutable after ingestion
 
 #### 7) Edge cases
 
-- Password-protected PDFs: prompt for password or skip with error
-- Corrupted files: detect and skip with "File could not be read" error
-- Very large PDFs (>100 pages): process with chunked extraction, show estimated time
-- Files with identical names but different content: auto-suffix with `-2`, `-3`
-- Non-UTF-8 text files: detect encoding, convert to UTF-8
-
-#### 8) Non-functional requirements
-
-- **Performance:** <10s for files <50MB; <60s for PDFs >100 pages
-- **Capacity:** Handle batch of 50 files without memory pressure
-- **Security:** Files never leave local disk. No temporary cloud upload.
-- **Audit:** All ingestion events logged in `raw/.ingest-log.json`
+- Password-protected PDFs: prompt for password or skip
+- Corrupted files: skip with "File could not be read"
+- >100 page PDFs: chunked extraction with estimated time
+- Non-UTF-8: detect encoding, convert to UTF-8
 
 #### 9) Definition of done
 
-- All acceptance criteria demonstrated
-- PDF extraction tested on 20+ diverse layouts (academic papers, reports, slides)
-- OCR accuracy validated against 5 scanned documents
+- PDF extraction tested on 20+ layouts
 - Batch drop stress-tested with 50 files
-- Error handling covers all scenarios without crashes
+- Original preservation verified
 
 ---
 
@@ -253,14 +194,12 @@
 
 ---
 
-### US-003: Initial wiki compilation
+### US-003: Initial wiki compilation (the core)
 
 #### 1) Story information
 
 - **Title:** Compile raw sources into wiki
 - **ID:** US-003
-- **Author:** Product Manager — Ali Naserifar
-- **Created date:** 2026-04-04
 - **Priority:** P0
 - **Target release:** v1.0 — Phase 2
 - **Status:** Draft
@@ -270,98 +209,97 @@
 
 *As a* **researcher with 10+ sources in raw/**  
 *I want* **the LLM to compile them into a structured, interlinked wiki**  
-*So that* **I have a navigable knowledge graph instead of a pile of disconnected documents**
+*So that* **I have a navigable knowledge graph instead of disconnected documents**
 
-**JTBD:** "When I've accumulated enough raw material on a topic, I want to trigger compilation and get a wiki with concept articles, summaries, categories, and backlinks — without writing any of it myself."
+**JTBD:** "When I've accumulated raw material on a topic, I want to trigger compilation and get a wiki with entity pages, concept pages, summaries, cross-references, and an evolving synthesis — without writing any of it myself."
 
 #### 3) Business context
 
-- **Problem:** Raw sources are isolated; no cross-referencing, no concept extraction, no synthesis. The researcher must hold the entire structure in their head.
-- **Scope (in):** 6-step pipeline (summarize → extract concepts → generate articles → create backlinks → build index → detect conflicts). Wiki output as .md files with YAML frontmatter.
-- **Out of scope:** Multi-language compilation, citation formatting (APA/MLA), visual diagram generation
-- **Success metrics:**
-  - ≥1 wiki article per 2 raw sources
-  - ≥90% of factual claims traceable to source
-  - Zero orphan articles (every article has ≥1 backlink)
-  - Compilation time: <2 min for 15 sources
+- **Problem:** Raw sources are isolated. The LLM re-derives knowledge from scratch on every question. Nothing accumulates.
+- **Goal:** Knowledge compiled once and kept current, not re-derived per query.
+- **Scope (in):** 6-step pipeline. Output as .md files with YAML frontmatter and `[[wikilinks]]`. Creates `index.md`, `log.md`, entity pages, concept pages, source summaries, synthesis overview.
+- **Out of scope:** Multi-language, citation formatting (APA/MLA), diagram generation
+- **Success metrics:** ≥1 article per 2 sources, ≥90% claims traceable, zero orphan articles, <2 min for 15 sources
 
 #### 4) Acceptance criteria (BDD)
 
-**Scenario: First compilation with 15 sources**  
-**Given** the user has 15 markdown files in raw/  
-**When** the user triggers "Compile Wiki"  
-**Then** the system creates `wiki/` directory with:
-- `INDEX.md` — master index with one-line summary per article, organized by category
-- `CONCEPTS.md` — extracted concept taxonomy (hierarchical)
-- `CONFLICTS.md` — any detected cross-source contradictions
-- `SCHEMA.md` — wiki format documentation (auto-generated)
-- `CHANGELOG.md` — timestamped compilation log
-- Individual article .md files in category subdirectories  
-**And** each article includes: title, summary, key points, source references (`[[raw/source-name]]`), related articles (`[[wiki/article]]`)  
-**And** compilation progress is shown with step labels and estimated time  
-**And** total token usage and estimated cost are displayed on completion
+**Scenario: First compilation with 15 sources (human-in-the-loop)**  
+**Given** 15 markdown files in raw/ and user triggers "Compile Wiki"  
+**When** the LLM processes each source  
+**Then** for each source: LLM reads it, discusses key takeaways with user, writes summary page  
+**And** after all sources: generates entity pages, concept pages, comparison pages, synthesis overview  
+**And** creates `index.md` (content catalog with links + summaries by category)  
+**And** creates `log.md` with timestamped entries for each operation  
+**And** creates `CONFLICTS.md` with cross-source contradictions  
+**And** all pages have YAML frontmatter: `title`, `type` (entity/concept/summary/comparison/synthesis), `sources[]`, `created_at`, `tags[]`  
+**And** all cross-references use `[[wikilinks]]`  
+**And** a single source may touch 10–15 wiki pages  
+**And** total token usage and cost estimate displayed
+
+**Scenario: Batch compilation (less supervision)**  
+**Given** 15 sources in raw/ and user triggers "Compile Wiki --batch"  
+**When** the LLM processes all sources without pausing for discussion  
+**Then** same output as human-in-the-loop but without per-source discussion  
+**And** a compilation summary is generated with key decisions the LLM made
 
 **Scenario: Conflicting information across sources**  
-**Given** two sources in raw/ contain contradictory claims  
-**When** compilation processes both sources  
-**Then** the generated article notes the discrepancy inline: "⚠️ Conflict: [Source A] states X while [Source B] states Y"  
-**And** the conflict is logged in `CONFLICTS.md` with severity, article, and source references
+**Given** two sources contain contradictory claims  
+**When** compilation processes both  
+**Then** the generated page notes: "⚠️ Conflict: [Source A] states X while [Source B] states Y"  
+**And** CONFLICTS.md updated with severity, articles, and source references
 
 **Scenario: Compilation failure mid-process**  
-**Given** compilation is running and the LLM API returns a rate limit or error  
-**When** the error occurs  
-**Then** all successfully compiled articles are preserved  
-**And** a checkpoint is saved in `wiki/.checkpoint.json`  
-**And** the system displays "Compilation paused at step 3/6 — 8 of 15 sources processed. Resume?"  
-**And** resuming continues from the checkpoint, not from scratch
+**Given** LLM API returns error during compilation  
+**When** error occurs  
+**Then** all completed pages preserved  
+**And** checkpoint saved in `wiki/.checkpoint.json`  
+**And** display: "Paused at step 3/6 — 8 of 15 sources processed. Resume?"  
+**And** resume continues from checkpoint
 
-**Scenario: Empty or corrupt source in raw/**  
-**Given** one file in raw/ is empty or has corrupt markdown  
-**When** compilation encounters it  
-**Then** the file is skipped with a warning in the compilation log  
-**And** remaining sources compile normally  
-**And** the skipped file is listed in CHANGELOG.md
+**Scenario: log.md entry format**  
+**Given** compilation completes for a source  
+**When** log.md is updated  
+**Then** entry follows parseable format: `## [2026-04-04] ingest | Article Title`  
+**And** entry includes: pages created, pages updated, conflicts found, tokens used
 
 #### 5) Functional requirements
 
-- **FR-01:** Pipeline orchestrated as 6 sequential steps, each producing intermediate artifacts
-- **FR-02:** Each step's prompt chain is configurable via `AGENTS.md` schema file in project root
-- **FR-03:** Source provenance: every claim in wiki articles links back to `raw/[source].md` with section reference
-- **FR-04:** Concept extraction identifies: entities, relationships, hierarchies, and cross-source frequencies
-- **FR-05:** Article generation groups related concepts; minimum article length 200 words, maximum 3,000
-- **FR-06:** Backlinks are bidirectional: if Article A links to Article B, Article B's "Referenced by" section includes Article A
-- **FR-07:** Token budget system: user sets max tokens per compilation; system optimizes within budget (e.g., shorter summaries when budget is tight)
-- **FR-08:** Atomic output: compiled wiki is staged in `wiki/.staging/` and promoted to `wiki/` only on full success
+- **FR-01:** 6-step pipeline: summarize → extract entities/concepts → generate pages → create `[[wikilinks]]` → build index.md → detect conflicts
+- **FR-02:** Schema file (CLAUDE.md / AGENTS.md) defines page templates, naming conventions, cross-referencing rules
+- **FR-03:** Page types: entity, concept, source-summary, comparison, synthesis, overview
+- **FR-04:** Source provenance: every claim links to `[[raw/source-name]]` with section reference
+- **FR-05:** YAML frontmatter on all pages: `title`, `type`, `sources`, `created_at`, `updated_at`, `tags`, `word_count`
+- **FR-06:** Frontmatter compatible with Obsidian Dataview plugin
+- **FR-07:** Token budget system: user sets max tokens; system optimizes within budget
+- **FR-08:** Atomic output: staged in `wiki/.staging/`, promoted on success
+- **FR-09:** Git commit after successful compilation (if git initialized)
+- **FR-10:** Two modes: human-in-the-loop (discuss per source) and batch (minimal supervision)
 
 #### 6) UX / UI requirements
 
-- **Progress panel:** 6-step pipeline with current step highlighted, estimated time remaining, token counter
-- **Completion screen:** Summary card with: articles generated, concepts extracted, conflicts detected, tokens used, estimated cost
-- **Preview:** User can browse compiled wiki immediately in the viewer tab
-- **Abort:** "Cancel compilation" button available at any step; preserves checkpoint
+- Progress panel: 6-step pipeline with current step, estimated time, token counter
+- Completion: summary card — articles generated, concepts extracted, conflicts, tokens, cost
+- Human-in-the-loop: after each source summary, pause for user feedback before proceeding
 
 #### 7) Edge cases
 
-- All sources on same topic: compilation should still produce multiple articles for sub-concepts
-- Sources with very different quality (academic paper vs. blog post): weight academic sources higher in conflict resolution
-- Very short sources (<500 words): still summarize, but may not produce standalone article
-- Unicode-heavy content (math, CJK): preserve in markdown without corruption
+- All sources on same topic: still produce sub-concept articles
+- Very short sources (<500 words): summarize, may not produce standalone page
+- LLM can't read markdown + inline images in one pass: read text first, then view images separately
 
 #### 8) Non-functional requirements
 
-- **Performance:** <2 min for 15 sources (assuming ~3K words avg per source, ~45K total)
-- **Cost:** <$2 USD for 15-source compilation (at Claude Sonnet pricing)
-- **Reliability:** Zero data loss on failure; checkpoint + atomic staging
-- **Auditability:** Full prompt chain logged in `wiki/.compilation-log/[timestamp]/` for debugging
+- **Performance:** <2 min for 15 sources (~45K words total)
+- **Cost:** <$2 USD for 15 sources (Claude Sonnet pricing)
+- **Auditability:** Full prompt chain in `wiki/.compilation-log/[timestamp]/`
 
 #### 9) Definition of done
 
-- Compilation tested on 5 diverse source sets (academic, journalistic, technical, mixed, adversarial)
-- INDEX.md accurately reflects all generated articles
-- Zero orphan articles in output
-- Conflict detection validated against 3 known-contradictory source pairs
-- Token usage within 10% of budget estimate
-- Documentation: AGENTS.md schema documented with examples
+- Tested on 5 diverse source sets
+- index.md accurate, zero orphans
+- Conflict detection validated on 3 known contradictory pairs
+- log.md parseable: `grep "^## \[" log.md | tail -5` works
+- YAML frontmatter Dataview-compatible on all pages
 
 ---
 
@@ -378,78 +316,139 @@
 
 #### 2) User story
 
-*As a* **researcher who just added a new source to raw/**  
-*I want* **the wiki to update incrementally without re-processing existing content**  
-*So that* **I don't waste tokens or time every time I add one document**
+*As a* **researcher who just added a new source**  
+*I want* **to say "file this to our wiki" and have it integrated in seconds**  
+*So that* **the wiki stays current without full recompilation**
 
-**JTBD:** "When I clip a new paper, I want to say 'file this to our wiki' and have it integrated in seconds."
-
-#### 3) Business context
-
-- **Problem:** Full recompilation is expensive ($2+ per run) and slow; doesn't scale beyond ~50 sources
-- **Scope (in):** Diff detection, affected-article identification via dependency graph, targeted article updates, index refresh, new backlink insertion
-- **Out of scope:** Auto-detection of raw/ file system changes (user triggers manually), real-time streaming compilation
-- **Success metrics:**
-  - Incremental compile for 1 new source: <30s
-  - Token usage: <20% of full compile
-  - Zero regression in existing article quality
-  - CHANGELOG.md updated with diff summary
+**JTBD:** "After a while, the LLM 'gets' the pattern and the marginal document is a lot easier. I just say 'file this new doc to our wiki: [path]'."
 
 #### 4) Acceptance criteria (BDD)
 
-**Scenario: Add one new source to 80-article wiki**  
-**Given** the wiki has 80 articles compiled from 40 sources  
-**When** the user adds a new raw source and triggers "Update Wiki"  
-**Then** the system:
-1. Summarizes the new source
-2. Identifies which existing concepts/articles are affected (via concept overlap)
-3. Updates affected articles with new information and backlinks
-4. Creates new article(s) if new concepts are introduced
-5. Updates INDEX.md, CONCEPTS.md, and CHANGELOG.md  
-**And** untouched articles remain byte-identical  
-**And** CHANGELOG.md entry shows: added articles, modified articles, new backlinks, tokens used
+**Scenario: Add one source to 80-article wiki**  
+**Given** wiki has 80 articles from 40 sources  
+**When** user adds new source and says "file this to our wiki"  
+**Then** LLM:  
+1. Reads new source, discusses key takeaways (if human-in-the-loop mode)  
+2. Writes source summary page  
+3. Updates relevant entity and concept pages (a single source touches 10–15 pages)  
+4. Creates new pages if new concepts introduced  
+5. Updates index.md  
+6. Appends log.md entry: `## [date] ingest | Source Title`  
+7. Updates CONFLICTS.md if contradictions found  
+**And** untouched pages remain byte-identical  
+**And** git commit with descriptive message
 
-**Scenario: New source contradicts existing wiki content**  
-**Given** the new source conflicts with content in an existing article  
-**When** incremental compilation detects the conflict  
-**Then** the existing article is updated with the discrepancy noted inline  
-**And** CONFLICTS.md is appended with the new conflict
+**Scenario: Source adds no new information**  
+**Given** source covers already-documented topics  
+**When** LLM analyzes it  
+**Then** source is referenced in relevant pages' source lists  
+**And** no new pages generated  
+**And** user informed: "Indexed but no new pages — concepts already covered"
 
-**Scenario: New source adds no new information**  
-**Given** the new source covers topics already thoroughly documented in the wiki  
-**When** incremental compilation analyzes it  
-**Then** the source is referenced in relevant articles' source lists  
-**And** no new articles are generated  
-**And** the user is informed: "Source indexed but no new articles generated — concepts already covered"
+**Scenario: New source contradicts existing wiki**  
+**Given** new source conflicts with existing page  
+**When** detected  
+**Then** existing page updated with discrepancy noted inline  
+**And** CONFLICTS.md appended
 
 #### 5) Functional requirements
 
-- **FR-01:** Content hashing to detect which raw sources have changed since last compile
-- **FR-02:** Dependency graph: `wiki/.deps.json` maps which wiki articles depend on which raw sources
-- **FR-03:** Affected-article detection: compare new source concepts against existing CONCEPTS.md
-- **FR-04:** Atomic updates via `wiki/.staging/` — committed only on success
-- **FR-05:** Rollback: "Revert Last Update" restores from `wiki/.backup/[timestamp]/`
-- **FR-06:** CLI support: `compendium update [path-to-new-source]` or `compendium update --all-new`
+- **FR-01:** Content hashing to detect new/changed sources
+- **FR-02:** Dependency graph: `wiki/.deps.json` mapping wiki pages → raw sources
+- **FR-03:** Atomic updates via staging
+- **FR-04:** Rollback: "Revert Last Update" from `wiki/.backup/` or git
+- **FR-05:** CLI: `compendium update [path]` or `compendium update --all-new`
+- **FR-06:** Log entry for every incremental update
 
-#### 6) Edge cases
+#### 7) Edge cases
 
-- Multiple new sources added at once: batch incremental compile
-- Source deleted from raw/: flag dependent wiki articles as potentially stale (don't auto-delete)
-- Source modified (not new): re-summarize and update affected articles
-- Wiki manually edited by user (despite "LLM writes" principle): preserve user edits, merge with LLM updates
+- Multiple new sources at once: batch incremental
+- Source deleted from raw/: flag dependent pages as potentially stale
+- Source modified: re-summarize and update affected pages
+- Wiki manually edited by user: preserve edits, merge with LLM updates
 
-#### 7) Non-functional requirements
+#### 8) Non-functional requirements
 
-- **Performance:** <30s per new source for wikis up to 200 articles
-- **Cost:** <$0.40 per incremental update (at Claude Sonnet pricing)
-- **Idempotency:** Running "Update Wiki" twice with no changes produces identical output
+- **Performance:** <30s per source for wikis up to 200 articles
+- **Cost:** <$0.40 per incremental update
+- **Idempotency:** Running update twice with no changes = identical output
+
+---
+
+### US-005: Schema file co-evolution
+
+#### 1) Story information
+
+- **Title:** Schema file creation and co-evolution
+- **ID:** US-005
+- **Priority:** P0
+- **Target release:** v1.0 — Phase 2
+- **Status:** Draft
+- **Linked epic:** COMPILE
+
+#### 2) User story
+
+*As a* **user setting up a new wiki**  
+*I want* **the LLM and I to co-create a schema file that defines wiki structure, conventions, and workflows**  
+*So that* **the LLM becomes a disciplined wiki maintainer instead of a generic chatbot**
+
+**JTBD:** "The schema is what makes this work. Without it, the LLM just generates random pages. With it, the LLM knows exactly how to structure my knowledge base for my domain."
+
+#### 3) Business context
+
+- **Problem:** Without a schema, the LLM has no consistent conventions — page types, naming, cross-referencing rules all vary randomly
+- **Goal:** A living configuration document that the LLM follows for all operations
+- **Scope (in):** Initial schema generation from domain description, co-evolution over time, starter schemas per domain, schema documentation
+- **Out of scope:** Schema version control UI (git handles this)
+
+#### 4) Acceptance criteria (BDD)
+
+**Scenario: New wiki setup**  
+**Given** user starts a new Compendium project  
+**When** user describes their domain: "I'm researching reinforcement learning applied to building control"  
+**Then** LLM generates a schema file (`CLAUDE.md` or `AGENTS.md`) defining:
+- Directory structure (`raw/`, `wiki/`, page type subdirectories)
+- Page types for this domain (e.g., algorithm, environment, paper-summary, experiment, comparison)
+- YAML frontmatter template per page type
+- Ingest workflow (step-by-step what to do when a new source arrives)
+- Cross-referencing rules (when to create wikilinks, what constitutes "related")
+- Conflict resolution approach
+- Quality standards (min/max page length, required sections per page type)  
+**And** user reviews and suggests changes  
+**And** LLM updates schema based on feedback
+
+**Scenario: Schema evolution after 20 sources**  
+**Given** the wiki has grown to 20 sources and 40 pages  
+**When** user notices pages are too long or missing a useful section  
+**Then** user and LLM discuss improvements to the schema  
+**And** schema is updated  
+**And** LLM offers to retroactively update existing pages to match new conventions
+
+**Scenario: Starter schema from template**  
+**Given** user selects a domain template (e.g., "Research Deep-Dive", "Book Reading", "Competitive Analysis")  
+**When** template is loaded  
+**Then** schema is pre-populated with domain-appropriate page types, frontmatter fields, and workflows  
+**And** user can customize before first compilation
+
+#### 5) Functional requirements
+
+- **FR-01:** Schema file named `CLAUDE.md` (Claude Code), `AGENTS.md` (Codex), or `COMPENDIUM.md` (generic)
+- **FR-02:** Schema sections: Structure, Page Types, Frontmatter Templates, Ingest Workflow, Query Workflow, Lint Workflow, Cross-Referencing Rules, Quality Standards
+- **FR-03:** LLM reads schema before every operation and follows its conventions
+- **FR-04:** Schema changes are git-committed with descriptive messages
+- **FR-05:** Starter schema templates for ≥5 domains at launch
+
+#### 7) Edge cases
+
+- User never customizes schema: defaults must produce good results
+- Schema becomes contradictory after multiple edits: LLM should flag inconsistencies
+- Multiple LLM agents working on same wiki: schema ensures consistency
 
 #### 9) Definition of done
 
-- Incremental update tested on wikis of 20, 50, 100, 200 articles
-- Byte-identical verification for untouched articles
-- Rollback tested and verified
-- Cost tracking accurate within 10%
+- Schema generation tested for 5 different domains
+- LLM follows schema conventions with ≥95% compliance
+- Starter templates for: research, book reading, competitive analysis, personal tracking, course notes
 
 ---
 
@@ -457,12 +456,12 @@
 
 ---
 
-### US-005: Q&A against wiki
+### US-006: Q&A against wiki
 
 #### 1) Story information
 
 - **Title:** Ask complex questions against knowledge base
-- **ID:** US-005
+- **ID:** US-006
 - **Priority:** P0
 - **Target release:** v1.0 — Phase 3 (Weeks 7–9)
 - **Status:** Draft
@@ -470,141 +469,61 @@
 
 #### 2) User story
 
-*As a* **researcher with a 100-article wiki**  
-*I want* **to ask complex, multi-hop questions and get answers grounded in my knowledge base**  
-*So that* **I can extract insights spanning multiple sources without reading everything**
-
-**JTBD:** "When I need to compare findings across 20 papers, I want to ask a question and get a synthesized answer with source citations."
+*As a* **researcher with a compiled wiki**  
+*I want* **to ask questions and get answers grounded in my knowledge base with citations**  
+*So that* **I can synthesize insights spanning multiple sources without reading everything**
 
 #### 3) Business context
 
-- **Problem:** Reading 400K words to find an answer is impractical; existing tools lack source-grounded Q&A with persistent knowledge
-- **Scope (in):** Chat UI, CLI interface, index-first retrieval, multi-article context assembly, cited answers, conversation history within session
-- **Out of scope:** Voice interaction, external web search augmentation, cross-wiki queries
-- **Success metrics:**
-  - Answer relevance rated ≥4/5 by users
-  - ≥80% of cited sources are correct (verified by user)
-  - p95 response time <15 seconds
-  - Users ask ≥5 questions per session on average
+- **Key insight:** The LLM reads `index.md` first to find relevant pages, then drills into them. This works at moderate scale (~100 sources, ~hundreds of pages) without RAG.
+- **Success metrics:** ≥4/5 relevance rating, ≥80% citation accuracy, p95 <15s
 
 #### 4) Acceptance criteria (BDD)
 
 **Scenario: Multi-hop question**  
-**Given** the user asks "What are the main disagreements between Source A and Source B on topic X?"  
-**When** the Q&A engine processes the query  
-**Then** the system reads INDEX.md to identify relevant articles  
-**And** loads the relevant wiki articles into context (within token budget)  
-**And** returns a synthesized answer with inline citations `[[Article Name]]`  
-**And** displays which articles were consulted in a collapsible "Sources used" section
+**Given** user asks "What are the main disagreements between Source A and Source B?"  
+**When** Q&A engine processes  
+**Then** LLM reads `index.md` → identifies relevant pages → reads them → synthesizes answer  
+**And** answer includes `[[page]]` citations  
+**And** "Sources consulted" section lists all pages read
 
-**Scenario: Question with no relevant wiki content**  
-**Given** the user asks about a topic not covered in the wiki  
-**When** the system searches the index and finds no matches  
-**Then** it responds: "I don't have information about this in your knowledge base. Would you like to add sources about this topic?"
+**Scenario: No relevant content**  
+**Given** question is about a topic not in the wiki  
+**When** index search finds no matches  
+**Then** respond: "Not in your knowledge base. Add sources about this topic?"
 
 **Scenario: Follow-up question**  
-**Given** the user asked a question and received an answer  
-**When** the user asks a follow-up referencing "that" or "those results"  
-**Then** the system maintains conversation context and resolves pronouns correctly  
-**And** can reference previously loaded articles without re-reading them
+**Given** previous Q&A exchange  
+**When** user asks follow-up with pronouns ("that", "those")  
+**Then** context maintained, pronouns resolved correctly
 
-**Scenario: Very broad question exceeding token budget**  
-**Given** the user asks a question that touches 50+ articles  
-**When** the system detects token budget would be exceeded  
-**Then** it selects the top 10 most relevant articles by index-score  
-**And** informs the user: "This question spans many topics. I've focused on the 10 most relevant articles. Ask a more specific question for deeper coverage."
+**Scenario: Broad question exceeding token budget**  
+**Given** question touches 50+ pages  
+**When** token budget would be exceeded  
+**Then** select top 10 by index-score  
+**And** inform: "Focused on 10 most relevant pages. Ask more specifically for deeper coverage."
 
-#### 5) Functional requirements
-
-- **FR-01:** Index-first retrieval: always reads INDEX.md → scores relevance → loads top-N articles
-- **FR-02:** Token budget: configurable per query (default: 80% of model's context window)
-- **FR-03:** Citation format: `[[Article Title]]` inline, with expandable source list showing article + relevant section
-- **FR-04:** Conversation history: maintained per session, clearable, max 20 turns
-- **FR-05:** Dual interface: chat UI in desktop app + CLI `compendium ask "question"`
-- **FR-06:** Search engine as fallback: if index-first retrieval is insufficient, fall back to full-text search via CLI tool
-
-#### 6) UX / UI requirements
-
-- **Chat panel:** Left sidebar with conversation list, main panel with messages, input at bottom
-- **Citations:** Inline wikilinks are clickable → opens article in viewer pane
-- **Sources used:** Collapsible section at bottom of each answer listing articles consulted
-- **Token counter:** Small indicator showing tokens used / budget for current query
-- **Loading:** "Researching..." with spinner + "Reading 4 articles..." status text
-
-#### 7) Edge cases
-
-- Very short wiki (<5 articles): still functional, but inform user that coverage is limited
-- Question in different language than wiki content: attempt to answer, note language mismatch
-- Ambiguous question: ask one clarifying question before answering
-- Question about wiki structure ("how many articles do I have?"): answer from INDEX.md metadata directly
-
-#### 8) Non-functional requirements
-
-- **Performance:** p95 response <15 seconds including article retrieval + LLM generation
-- **Context efficiency:** Compress article content (summaries + key points) when budget is tight
-- **Conversation:** Session state persisted locally; survives app restart within same day
-
-#### 9) Definition of done
-
-- Tested on 20 diverse questions across 3 different wiki domains
-- Citation accuracy validated: ≥80% correct
-- CLI and chat UI both functional with identical answer quality
-- Follow-up questions resolve correctly in 3-turn conversations
-- Token budget respected without truncating answers mid-sentence
-
----
-
-### US-006: Output rendering — markdown reports
-
-#### 1) Story information
-
-- **Title:** Generate markdown report from Q&A
-- **ID:** US-006
-- **Priority:** P1
-- **Target release:** v1.0 — Phase 3
-- **Status:** Draft
-- **Linked epic:** QA
-
-#### 2) User story
-
-*As a* **researcher**  
-*I want* **Q&A answers rendered as structured markdown report files**  
-*So that* **I have polished deliverables I can share, reference, or file back into the wiki**
-
-#### 4) Acceptance criteria (BDD)
-
-**Scenario: Generate report from query**  
-**Given** the user asks a question and clicks "Save as Report" (or uses `--output report` flag)  
-**When** the answer is generated  
-**Then** a markdown file is created in `output/reports/[date]-[slug].md`  
-**And** it includes: title, date, query text, structured answer with headings, citations section, source list  
-**And** the user is prompted: "File this report into wiki? [Yes / No]"
-
-**Scenario: Report with visual data**  
-**Given** the user asks a question involving numerical data  
-**When** the answer contains comparative data  
-**Then** the report includes a markdown table summarizing the data  
-**And** optionally generates a matplotlib chart saved as PNG in `output/charts/`
+**Scenario: log.md entry**  
+**Given** query is answered  
+**When** log updated  
+**Then** entry: `## [date] query | What are the main disagreements on X?`
 
 #### 5) Functional requirements
 
-- **FR-01:** Report format: YAML frontmatter + structured body with H2 sections + citations footer
-- **FR-02:** Frontmatter includes: `type: report`, `query`, `generated_at`, `sources_used`, `tokens_used`
-- **FR-03:** Filing integration: "File to wiki" triggers US-008 flow
-- **FR-04:** CLI: `compendium ask "question" --output report`
-
-#### 9) Definition of done
-
-- Reports render correctly in Obsidian, VS Code, and Compendium viewer
-- ≥70% of test reports require zero manual editing before filing
+- **FR-01:** Index-first retrieval: read index.md → score relevance → load top-N pages
+- **FR-02:** Token budget configurable (default: 80% of model context)
+- **FR-03:** Citations as `[[wikilinks]]` with expandable source section
+- **FR-04:** Dual interface: chat UI + CLI `compendium ask "question"`
+- **FR-05:** Search CLI fallback if index-first retrieval insufficient (qmd or custom)
+- **FR-06:** Every query logged in log.md
 
 ---
 
-### US-007: Output rendering — slide decks
+### US-007: Multi-format output rendering
 
 #### 1) Story information
 
-- **Title:** Generate Marp slide deck from Q&A
+- **Title:** Render answers in multiple output formats
 - **ID:** US-007
 - **Priority:** P1
 - **Target release:** v1.0 — Phase 3
@@ -613,35 +532,45 @@
 
 #### 2) User story
 
-*As a* **content creator preparing a presentation**  
-*I want* **to generate a Marp-format slide deck from my wiki on a given topic**  
-*So that* **I can quickly produce presentation material grounded in my research**
+*As a* **researcher or content creator**  
+*I want* **answers rendered as markdown pages, Marp slide decks, matplotlib charts, or interactive HTML**  
+*So that* **I get polished deliverables, not just chat text**
 
 #### 4) Acceptance criteria (BDD)
 
-**Scenario: Generate 10-slide deck**  
-**Given** the user queries "Create a 10-slide deck on [topic] from my wiki"  
-**When** the system processes the request  
-**Then** a Marp .md file is created in `output/slides/[date]-[slug].md`  
-**And** each slide has: title, 3–5 bullet points, speaker notes  
-**And** the deck includes a title slide and a sources slide  
-**And** it renders in Compendium viewer's Marp plugin
+**Scenario: Markdown report**  
+**Given** user asks a question with `--output report` (or "Save as Report")  
+**When** answer generated  
+**Then** markdown file created in `output/reports/[date]-[slug].md`  
+**And** includes: title, date, query, structured answer, citations, source list  
+**And** prompted: "File into wiki? [Yes / No]"
 
-**Scenario: Insufficient wiki content for requested slide count**  
-**Given** the wiki has limited content on the requested topic  
-**When** the system detects it can't fill 10 slides  
-**Then** it generates fewer slides and informs: "Generated 6 slides. Wiki content on this topic is limited."
+**Scenario: Marp slide deck**  
+**Given** user requests "Create a 10-slide deck on [topic]"  
+**When** generated  
+**Then** Marp .md file in `output/slides/[date]-[slug].md`  
+**And** each slide: title, 3–5 points, speaker notes  
+**And** renders in Obsidian Marp plugin
+
+**Scenario: Interactive HTML**  
+**Given** user requests comparative or sortable data  
+**When** generated  
+**Then** HTML file with JS for sorting/filtering in `output/html/[date]-[slug].html`  
+**And** opens in browser or Obsidian
+
+**Scenario: Chart**  
+**Given** user requests data visualization  
+**When** generated  
+**Then** matplotlib PNG in `output/charts/[date]-[slug].png`  
+**And** referenced in accompanying markdown
 
 #### 5) Functional requirements
 
-- **FR-01:** Output follows Marp markdown syntax with `---` slide separators and `marp: true` frontmatter
-- **FR-02:** Speaker notes use `<!-- notes -->` blocks
-- **FR-03:** CLI: `compendium ask "create deck on X" --output slides --count 10`
-
-#### 9) Definition of done
-
-- Slides render correctly in Marp CLI and Obsidian Marp plugin
-- Tested on 3 different topics with 5, 10, and 15 slide requests
+- **FR-01:** Markdown: YAML frontmatter + structured body + citations footer
+- **FR-02:** Marp: `marp: true` frontmatter, `---` separators, `<!-- notes -->` blocks
+- **FR-03:** HTML: standalone file with inline JS/CSS for interactivity (sorting, filtering)
+- **FR-04:** Charts: matplotlib via Python script, output as PNG
+- **FR-05:** All outputs prompted for wiki filing (US-008)
 
 ---
 
@@ -649,7 +578,7 @@
 
 #### 1) Story information
 
-- **Title:** File Q&A output back into wiki
+- **Title:** File Q&A outputs back into wiki
 - **ID:** US-008
 - **Priority:** P0
 - **Target release:** v1.0 — Phase 3
@@ -659,63 +588,46 @@
 #### 2) User story
 
 *As a* **researcher**  
-*I want* **to file my Q&A outputs back into the wiki with one click**  
-*So that* **every exploration compounds the knowledge base for future queries**
+*I want* **to file Q&A outputs back into the wiki as new pages**  
+*So that* **my explorations compound in the knowledge base just like ingested sources do**
 
-**JTBD:** "When I generate a synthesis comparing three theories, that report should become a wiki article that future queries can reference."
+**JTBD:** "A comparison I asked for, an analysis, a connection I discovered — these are valuable and shouldn't disappear into chat history."
 
 #### 3) Business context
 
-- **Problem:** Without feedback filing, the wiki is static after compilation; Q&A outputs are ephemeral
-- **Goal:** Close the compounding loop — every query can enrich the knowledge base
-- **Success metrics:**
-  - ≥50% of Q&A outputs are filed back
-  - Filed articles are referenced in ≥30% of subsequent queries
-  - Filing + index update <5 seconds
+- **Critical insight from source doc:** "Good answers can be filed back into the wiki as new pages. This way your explorations compound in the knowledge base just like ingested sources do."
+- **Success metrics:** ≥50% of outputs filed, filed pages referenced in ≥30% of subsequent queries
 
 #### 4) Acceptance criteria (BDD)
 
 **Scenario: File report into wiki**  
-**Given** the user generated a report (US-006) or slide deck (US-007)  
-**When** the user clicks "File to Wiki"  
-**Then** the output is:
-1. Moved to appropriate `wiki/[category]/` subdirectory (auto-detected from content)
-2. Tagged with `source: user-query`, `filed_at: [ISO date]` in frontmatter
-3. Backlinks inserted into related existing wiki articles
-4. INDEX.md updated with new entry  
-**And** confirmation shown: "Filed as wiki/concepts/[name].md — 3 articles updated with backlinks"
+**Given** user generated any output (report, slides, chart analysis)  
+**When** user clicks "File to Wiki"  
+**Then** output becomes a wiki page in appropriate category subdirectory  
+**And** tagged `source: user-query`, `type: analysis`, `filed_at`  
+**And** `[[wikilinks]]` inserted into related existing pages  
+**And** index.md updated  
+**And** log.md entry: `## [date] file | Analysis: [title]`  
+**And** git commit
 
-**Scenario: Filing would create duplicate**  
-**Given** a wiki article with similar content already exists  
-**When** the user clicks "File to Wiki"  
-**Then** the system warns: "Similar article exists: [name]. Merge content, replace, or keep both?"
+**Scenario: Duplicate detection**  
+**Given** similar page exists  
+**When** user files  
+**Then** warn: "Similar page exists: [name]. Merge, replace, or keep both?"
 
-**Scenario: Merge with existing article**  
-**Given** the user chose "Merge" on duplicate detection  
-**When** the merge executes  
-**Then** the new content is appended under a "## Additional analysis ([date])" section  
-**And** new source references are added to the existing article's source list
+**Scenario: Merge with existing**  
+**Given** user chooses "Merge"  
+**When** merge executes  
+**Then** new content appended under `## Additional analysis ([date])` section  
+**And** new sources added to existing page's source list
 
 #### 5) Functional requirements
 
-- **FR-01:** Category auto-detection by comparing output concepts against CONCEPTS.md taxonomy
-- **FR-02:** Backlink insertion: find all wiki articles mentioning concepts in the filed output
-- **FR-03:** Atomic: staging → commit. Rollback available.
-- **FR-04:** Filed articles marked with `origin: qa-output` vs. `origin: compilation` for tracking
-- **FR-05:** INDEX.md update is atomic with the article filing
-
-#### 7) Edge cases
-
-- User files the same output twice: detect by content hash, warn
-- Filed output references raw/ sources that have been deleted: preserve references but mark as `[source removed]`
-- Filing during an active compilation: queue and apply after compilation completes
-
-#### 9) Definition of done
-
-- Filing tested with reports, slide decks, and raw chat answers
-- Backlink insertion verified: new article appears in related articles' "Referenced by" sections
-- INDEX.md consistency verified after 10 sequential filings
-- Duplicate detection works for exact and near-duplicate content
+- **FR-01:** Category auto-detection from CONCEPTS.md taxonomy
+- **FR-02:** Bidirectional backlink insertion
+- **FR-03:** Atomic staging + commit
+- **FR-04:** Filed pages marked `origin: qa-output` (distinct from `origin: compilation`)
+- **FR-05:** Index.md and log.md updated atomically
 
 ---
 
@@ -737,58 +649,158 @@
 #### 2) User story
 
 *As a* **researcher with a growing wiki**  
-*I want* **the system to detect inconsistencies, gaps, broken links, and contradictions**  
-*So that* **my knowledge base maintains integrity as it scales**
+*I want* **periodic health checks that find contradictions, stale claims, orphans, and gaps**  
+*So that* **the wiki maintains integrity as it scales**
 
-**JTBD:** "When my wiki grows past 100 articles, I need confidence that the content is consistent — like a test suite for knowledge."
-
-#### 3) Business context
-
-- **Problem:** Wiki entropy increases with scale: contradictions appear, links break, coverage gaps emerge
-- **Success metrics:** ≥80% of detected issues are actionable; false positive rate <15%
+**JTBD:** "The LLM is good at suggesting new questions to investigate and new sources to look for. Lint is generative, not just maintenance."
 
 #### 4) Acceptance criteria (BDD)
 
-**Scenario: Run full health check**  
-**Given** the user triggers "Lint Wiki" or it runs on schedule (daily)  
-**When** the linting engine completes  
-**Then** `wiki/HEALTH_REPORT.md` is generated with:
-- **Critical:** Broken internal links (references to non-existent articles)
-- **Warning:** Contradictions between articles (specific passages cited)
-- **Warning:** Orphan articles (no inbound backlinks)
-- **Info:** Coverage gaps (concepts mentioned but no dedicated article)
-- **Info:** Stale articles (source updated but wiki not recompiled)
-- **Info:** Suggested new articles based on connection analysis  
-**And** each issue has: severity, location (article + line), description, suggested fix
+**Scenario: Full lint pass**  
+**Given** user triggers "Lint Wiki" or scheduled run  
+**When** lint completes  
+**Then** `wiki/HEALTH_REPORT.md` generated with:
+- **Critical:** Broken `[[wikilinks]]` to non-existent pages
+- **Warning:** Contradictions between pages (specific passages)
+- **Warning:** Stale claims superseded by newer sources
+- **Warning:** Orphan pages (no inbound links)
+- **Info:** Concepts mentioned but lacking own page
+- **Info:** Missing cross-references between related pages
+- **Info:** Data gaps fillable via web search
+- **Info:** Suggested new questions to investigate
+- **Info:** Suggested new sources to look for  
+**And** each issue: severity, location, description, suggested fix  
+**And** log.md entry: `## [date] lint | Health check pass #N`
 
-**Scenario: Linting suggests new article**  
-**Given** 8 articles reference "reinforcement learning" but no dedicated article exists  
-**When** linting detects this pattern  
-**Then** it suggests: "Create article: 'Reinforcement Learning' — referenced in 8 articles"  
-**And** the user can click "Generate" to trigger compilation for that concept
+**Scenario: Generate missing page**  
+**Given** 8 pages reference "reinforcement learning" but no dedicated page exists  
+**When** lint detects  
+**Then** suggest: "Create page: 'Reinforcement Learning' — referenced in 8 pages"  
+**And** user can click "Generate" to trigger compilation
 
 **Scenario: Missing data imputation**  
-**Given** an article contains `[MISSING: publication date]`  
-**When** linting runs with web search enabled  
-**Then** the system searches for the missing datum  
-**And** proposes: "Found: published 2024-03-15 (source: doi.org/...). Accept?"
+**Given** page has `[MISSING: publication date]`  
+**When** lint runs with web search enabled  
+**Then** proposes: "Found: 2024-03-15 (source: doi.org/...). Accept?"
 
 #### 5) Functional requirements
 
-- **FR-01:** Link checker: validate all `[[wikilinks]]` resolve to existing articles
-- **FR-02:** Contradiction detector: LLM compares claims across related articles
-- **FR-03:** Coverage analyzer: concepts in CONCEPTS.md without dedicated articles
-- **FR-04:** Staleness tracker: compare raw/ modification dates against wiki article compilation dates
-- **FR-05:** Orphan finder: articles with zero inbound backlinks
-- **FR-06:** Connection discoverer: suggest articles based on co-occurrence patterns in existing content
-- **FR-07:** Scheduled runs: configurable cadence (daily/weekly/manual)
+- **FR-01:** Link checker: validate all `[[wikilinks]]` resolve
+- **FR-02:** Contradiction detector: LLM compares claims across related pages
+- **FR-03:** Staleness tracker: compare raw/ modification dates vs. wiki page compilation dates
+- **FR-04:** Orphan finder: pages with zero inbound `[[wikilinks]]`
+- **FR-05:** Coverage analyzer: concepts in content without dedicated pages
+- **FR-06:** Connection discoverer: suggest pages based on co-occurrence
+- **FR-07:** Question generator: suggest investigative questions based on wiki gaps
+- **FR-08:** Source recommender: suggest sources to look for based on gaps
+- **FR-09:** Scheduled: configurable cadence (daily/weekly/manual)
 
-#### 9) Definition of done
+---
 
-- Linting tested on wikis with 50, 100, 200 articles
-- Broken link detection catches 100% of actual broken links
-- Contradiction detection validated against 5 known contradictory pairs
-- False positive rate measured and <15%
+## Epic: INDEXING & NAVIGATION (INDEX)
+
+---
+
+### US-010: index.md — content-oriented catalog
+
+#### 1) Story information
+
+- **Title:** Auto-maintained content index
+- **ID:** US-010
+- **Priority:** P0
+- **Target release:** v1.0 — Phase 2
+- **Status:** Draft
+- **Linked epic:** INDEX
+
+#### 2) User story
+
+*As the* **Q&A engine and human reader**  
+*I want* **index.md to be a complete, accurate catalog of every wiki page**  
+*So that* **queries always start with an accurate map and humans can browse the full wiki**
+
+#### 4) Acceptance criteria (BDD)
+
+**Scenario: Index after compilation**  
+**Given** compilation completes  
+**When** index.md is generated  
+**Then** every wiki page listed with: `[[link]]`, one-line summary, page type, source count, last updated  
+**And** organized by category (entities, concepts, sources, comparisons, analyses)  
+**And** sorted alphabetically within categories
+
+**Scenario: Index after incremental update**  
+**Given** one new source ingested  
+**When** index.md updated  
+**Then** new entries added, modified entries refreshed  
+**And** untouched entries unchanged
+
+**Scenario: Index after feedback filing**  
+**Given** Q&A output filed as new page  
+**When** index updated  
+**Then** new entry with `type: analysis` and `origin: qa-output`
+
+**Scenario: Consistency check**  
+**Given** user runs `compendium verify-index`  
+**When** system checks index vs. actual wiki/  
+**Then** reports mismatches and offers to rebuild
+
+#### 5) Functional requirements
+
+- **FR-01:** Format: table with columns: Page, Type, Summary, Sources, Updated
+- **FR-02:** Every wiki-modifying operation triggers index refresh
+- **FR-03:** Rebuild command: `compendium rebuild-index`
+- **FR-04:** Used by Q&A engine as first-read entry point
+
+---
+
+### US-011: log.md — chronological record
+
+#### 1) Story information
+
+- **Title:** Append-only operation log
+- **ID:** US-011
+- **Priority:** P0
+- **Target release:** v1.0 — Phase 2
+- **Status:** Draft
+- **Linked epic:** INDEX
+
+#### 2) User story
+
+*As a* **user and LLM**  
+*I want* **log.md to record every operation chronologically with a parseable format**  
+*So that* **I have a timeline of the wiki's evolution and the LLM knows what's been done recently**
+
+#### 4) Acceptance criteria (BDD)
+
+**Scenario: Ingest logged**  
+**Given** a source is ingested  
+**When** log.md is appended  
+**Then** entry: `## [2026-04-04] ingest | Article Title`  
+**And** sub-bullets: pages created, pages updated, conflicts found, tokens used
+
+**Scenario: Query logged**  
+**Given** a query is answered  
+**When** log appended  
+**Then** entry: `## [2026-04-04] query | What are the main disagreements on X?`  
+**And** sub-bullets: pages consulted, tokens used, output filed (yes/no)
+
+**Scenario: Lint logged**  
+**Given** lint pass completes  
+**When** log appended  
+**Then** entry: `## [2026-04-04] lint | Health check pass #4`  
+**And** sub-bullets: issues found (by severity), pages modified
+
+**Scenario: Parseable with unix tools**  
+**Given** log has 100+ entries  
+**When** user runs `grep "^## \[" log.md | tail -5`  
+**Then** last 5 entries displayed correctly with dates and operation types
+
+#### 5) Functional requirements
+
+- **FR-01:** Append-only — never modified, only appended
+- **FR-02:** Consistent prefix format: `## [YYYY-MM-DD] operation | Title`
+- **FR-03:** Operations: `ingest`, `query`, `file`, `lint`, `schema-update`, `rebuild`
+- **FR-04:** Every operation in the system must log to log.md
+- **FR-05:** LLM reads log.md to understand recent activity context
 
 ---
 
@@ -796,12 +808,12 @@
 
 ---
 
-### US-010: Interactive wiki graph viewer
+### US-012: Graph viewer (Obsidian)
 
 #### 1) Story information
 
 - **Title:** Knowledge graph visualization
-- **ID:** US-010
+- **ID:** US-012
 - **Priority:** P1
 - **Target release:** v1.0 — Phase 4
 - **Status:** Draft
@@ -810,53 +822,41 @@
 #### 2) User story
 
 *As a* **researcher**  
-*I want* **to see my wiki as an interactive graph of interconnected articles**  
-*So that* **I can visually discover patterns, identify gaps, and navigate large wikis**
+*I want* **to see my wiki as an interactive graph of pages and their connections**  
+*So that* **I can see hubs, orphans, and clusters — the shape of my knowledge**
 
 #### 4) Acceptance criteria (BDD)
 
-**Scenario: View 100-article graph**  
-**Given** the wiki has 100+ articles with backlinks  
-**When** the user opens Graph View  
-**Then** articles appear as nodes, backlinks as edges  
-**And** nodes colored by category (from CONCEPTS.md taxonomy)  
-**And** node size proportional to inbound link count  
-**And** clicking a node opens the article in the reader pane  
-**And** orphan nodes visually distinct (faded outline, no fill)
+**Scenario: View in Obsidian**  
+**Given** wiki is opened as Obsidian vault  
+**When** user opens Graph View  
+**Then** pages appear as nodes, `[[wikilinks]]` as edges  
+**And** nodes colored by page type (entity, concept, summary, analysis)  
+**And** node size proportional to inbound links  
+**And** orphan nodes visually distinct (faded)  
+**And** clicking a node opens the page
 
-**Scenario: Filter graph by category**  
-**Given** the graph is displayed  
-**When** the user selects a category filter  
-**Then** only nodes in that category (and their cross-category edges) are shown
-
-**Scenario: Search within graph**  
-**Given** the graph is displayed  
-**When** the user types in the graph search box  
-**Then** matching nodes are highlighted and the view centers on them
+**Scenario: Custom app graph**  
+**Given** user opens Compendium desktop app  
+**When** Graph View tab opened  
+**Then** equivalent graph rendered with D3.js force-directed layout  
+**And** filter by category, search by name
 
 #### 5) Functional requirements
 
-- **FR-01:** Graph rendered with D3.js force-directed layout or equivalent
-- **FR-02:** Performance: 200+ nodes at 60fps with smooth pan/zoom
-- **FR-03:** Node metadata on hover: title, category, word count, source count, last updated
-- **FR-04:** Edge labels optional (toggle): show relationship type from backlink context
-- **FR-05:** Export graph as SVG or PNG
-
-#### 9) Definition of done
-
-- Graph renders 200 nodes at 60fps on M1 MacBook Air
-- Click-to-article navigation works for all node types
-- Category coloring matches CONCEPTS.md taxonomy
-- Pan, zoom, filter, and search all functional
+- **FR-01:** Primary: Obsidian's native graph view (zero implementation cost)
+- **FR-02:** Secondary: custom D3.js graph in Tauri app
+- **FR-03:** 200+ nodes at 60fps
+- **FR-04:** Export as SVG or PNG
 
 ---
 
-### US-011: Wiki search engine
+### US-013: Search engine (qmd or custom)
 
 #### 1) Story information
 
-- **Title:** Full-text and semantic search
-- **ID:** US-011
+- **Title:** Wiki search engine
+- **ID:** US-013
 - **Priority:** P1
 - **Target release:** v1.0 — Phase 4
 - **Status:** Draft
@@ -865,95 +865,93 @@
 #### 2) User story
 
 *As a* **researcher or LLM agent**  
-*I want* **to search the wiki using full-text and semantic queries**  
-*So that* **I can quickly find specific content for Q&A or manual reading**
+*I want* **full-text and semantic search over the wiki**  
+*So that* **I can find specific content quickly, especially as the wiki outgrows index-first retrieval**
+
+**Context from source doc:** "At small scale the index file is enough, but as the wiki grows you want proper search. qmd is a good option: local, BM25 + vector, LLM re-ranking, on-device. CLI + MCP server."
 
 #### 4) Acceptance criteria (BDD)
 
-**Scenario: CLI search by LLM agent**  
-**Given** the LLM agent processes a complex query  
-**When** it invokes `compendium search "attention mechanism transformers"`  
-**Then** top 5 results returned with: title, relevance score, 100-word snippet  
-**And** results in <2 seconds
+**Scenario: LLM searches via CLI**  
+**Given** LLM agent processing a complex query needs more than index  
+**When** it shells out to `qmd search "attention mechanisms"`  
+**Then** top 5 results with: title, score, snippet  
+**And** response in <2s
 
-**Scenario: Web UI search by user**  
-**Given** the user opens the search panel  
-**When** typing a query  
-**Then** results appear as-you-type (debounced 200ms)  
-**And** matched terms highlighted in snippets  
-**And** clicking a result opens the article
+**Scenario: LLM searches via MCP**  
+**Given** LLM agent has qmd configured as MCP server  
+**When** it uses the search tool natively  
+**Then** same results without shelling out
 
-**Scenario: No results**  
-**Given** the user searches for a term not in the wiki  
-**When** zero results are found  
-**Then** display: "No articles match '[query]'. Try broader terms or add sources about this topic."
+**Scenario: User searches in UI**  
+**Given** user types in search panel  
+**When** query entered  
+**Then** results as-you-type with highlighted matches  
+**And** clicking opens the page
+
+**Scenario: Index is sufficient**  
+**Given** wiki has <100 pages  
+**When** user/LLM queries  
+**Then** index-first retrieval works fine, search engine is optional convenience
 
 #### 5) Functional requirements
 
-- **FR-01:** Full-text index built on wiki compilation (inverted index over article content)
-- **FR-02:** Semantic search via lightweight embedding model (optional, configurable)
-- **FR-03:** Dual interface: web UI panel in desktop app + CLI `compendium search "query"`
-- **FR-04:** Results ranked by relevance (TF-IDF or BM25)
-- **FR-05:** Index auto-updates on wiki changes (compilation, filing, linting)
-
-#### 9) Definition of done
-
-- Search tested on 100-article wiki with 50 diverse queries
-- p95 response <2s for full-text, <5s for semantic
-- CLI output parseable by LLM (structured JSON)
+- **FR-01:** Recommended: qmd (BM25 + vector, on-device, CLI + MCP server)
+- **FR-02:** Alternative: custom naive search (vibe-coded as needed)
+- **FR-03:** CLI: `compendium search "query"` or `qmd search "query"`
+- **FR-04:** MCP server: LLM uses search as native tool
+- **FR-05:** Index auto-updates on wiki changes
 
 ---
 
-### US-012: Auto-maintained wiki index
+### US-014: Git integration
 
 #### 1) Story information
 
-- **Title:** Self-maintaining wiki index
-- **ID:** US-012
-- **Priority:** P0
-- **Target release:** v1.0 — Phase 2
+- **Title:** Wiki as git repository
+- **ID:** US-014
+- **Priority:** P1
+- **Target release:** v1.0 — Phase 4
 - **Status:** Draft
-- **Linked epic:** COMPILE
+- **Linked epic:** VIEW
 
 #### 2) User story
 
-*As the* **Q&A engine (system)**  
-*I want* **INDEX.md and CONCEPTS.md to always reflect the current wiki state**  
-*So that* **every query starts with an accurate knowledge map**
+*As a* **user**  
+*I want* **the wiki to be a git repo with automatic commits on every operation**  
+*So that* **I get version history, rollback, branching, and diffing for free**
+
+**Context:** "The wiki is just a git repo of markdown files. You get version history, branching, and collaboration for free."
 
 #### 4) Acceptance criteria (BDD)
 
-**Scenario: Index sync after incremental compile**  
-**Given** a new article is added (compilation or filing)  
-**When** the article is committed to wiki/  
-**Then** INDEX.md is atomically updated with the new entry and refreshed summaries  
-**And** CONCEPTS.md taxonomy updated if new concepts introduced  
-**And** INDEX.md sorted by category, then alphabetically
+**Scenario: Auto-commit on compilation**  
+**Given** wiki compilation completes  
+**When** pages are written  
+**Then** git commit with message: `compile: ingested [source-name], updated 12 pages`
 
-**Scenario: Article deleted by user**  
-**Given** the user manually deletes a wiki article  
-**When** the system detects the deletion  
-**Then** INDEX.md entry is removed  
-**And** backlinks in other articles are flagged as broken (for linting)
+**Scenario: Auto-commit on filing**  
+**Given** Q&A output filed to wiki  
+**When** page created + index updated  
+**Then** git commit: `file: added analysis — [title]`
 
-**Scenario: Index consistency check**  
-**Given** the user runs `compendium verify-index`  
-**When** the system checks INDEX.md against actual wiki/ contents  
-**Then** it reports any mismatches and offers to rebuild the index
+**Scenario: Rollback via git**  
+**Given** last compilation introduced errors  
+**When** user runs `git revert HEAD` or uses "Revert" in UI  
+**Then** wiki returns to previous state cleanly
+
+**Scenario: Diff review**  
+**Given** incremental update touched 10 pages  
+**When** user runs `git diff HEAD~1`  
+**Then** all changes visible: new pages, modified sections, updated index
 
 #### 5) Functional requirements
 
-- **FR-01:** INDEX.md format: `| Article | Category | Summary (1 line) | Sources | Last updated |`
-- **FR-02:** CONCEPTS.md format: hierarchical bullet list with article counts per concept
-- **FR-03:** Every wiki-modifying operation (compile, file, lint-fix) triggers index refresh
-- **FR-04:** Index rebuild command: `compendium rebuild-index` (full regeneration from wiki/ scan)
-- **FR-05:** File system watcher (optional): detect external changes to wiki/ directory
-
-#### 9) Definition of done
-
-- Index consistent after 20 sequential operations (mix of compile, file, delete)
-- Rebuild produces byte-identical index to incremental updates
-- `verify-index` detects all synthetically introduced mismatches
+- **FR-01:** `git init` on wiki creation if not already a repo
+- **FR-02:** Auto-commit after every operation (ingest, file, lint-fix, schema update)
+- **FR-03:** Commit messages follow convention: `[operation]: [description]`
+- **FR-04:** `.gitignore` for: `.staging/`, `.checkpoint.json`, `.compilation-log/`
+- **FR-05:** Branch support for experimental compilations
 
 ---
 
@@ -961,12 +959,12 @@
 
 ---
 
-### US-013: BYOM — Bring your own model
+### US-015: BYOM — Bring your own model
 
 #### 1) Story information
 
 - **Title:** LLM provider configuration
-- **ID:** US-013
+- **ID:** US-015
 - **Priority:** P0
 - **Target release:** v1.0 — Phase 4
 - **Status:** Draft
@@ -978,78 +976,38 @@
 *I want* **to configure which LLM provider and model Compendium uses**  
 *So that* **I control my cost, privacy, and quality tradeoff**
 
-**JTBD:** "When I'm doing sensitive research, I want to use local Ollama. When I need max quality, I switch to Claude Opus. I never want to be locked to one provider."
-
-#### 3) Business context
-
-- **Problem:** Vendor lock-in reduces trust and limits adoption; users have different cost/privacy/quality needs
-- **Scope (in):** Multi-provider support, per-operation model selection, API key management, token usage dashboard
-- **Out of scope:** Model fine-tuning, custom model hosting, automatic model switching based on query complexity
-- **Success metrics:** ≥40% of users configure multiple providers within 3 months
-
 #### 4) Acceptance criteria (BDD)
 
-**Scenario: Configure Anthropic Claude**  
-**Given** the user opens Settings → LLM Provider  
-**When** the user selects "Anthropic" and enters their API key  
-**Then** the key is stored in the OS keychain (not plain text on disk)  
-**And** available models are listed (sonnet, opus, haiku)  
-**And** a test query validates the key  
-**And** estimated cost per 1K tokens is displayed
+**Scenario: Configure Anthropic**  
+**Given** user opens Settings → LLM Provider  
+**When** selects Anthropic, enters API key  
+**Then** key stored in OS keychain, models listed, test query validates, cost displayed
 
-**Scenario: Switch to local Ollama**  
-**Given** the user has Ollama running locally  
-**When** the user selects "Ollama" and enters endpoint (default: localhost:11434)  
-**Then** available models are auto-detected  
-**And** cost indicator shows "$0.00 / query (local)"  
-**And** a warning if context window <32K: "This model may struggle with large wiki queries"
+**Scenario: Local Ollama**  
+**Given** Ollama running locally  
+**When** configured  
+**Then** cost shows "$0.00 / query (local)"  
+**And** warning if context <32K
 
 **Scenario: Per-operation model assignment**  
-**Given** the user has multiple providers configured  
-**When** they open "Model Assignment"  
-**Then** they can set: Compilation → Claude Opus (quality), Q&A → Claude Sonnet (speed+cost), Linting → Ollama Llama (free)
+**Given** multiple providers configured  
+**When** user opens Model Assignment  
+**Then** can set: Compilation → Opus (quality), Q&A → Sonnet (speed), Linting → Ollama (free)
 
-**Scenario: Invalid API key**  
-**Given** the user enters an invalid key  
-**When** the test query fails  
-**Then** error: "Could not connect. Check your API key."  
-**And** previous working config is preserved
+**Scenario: Works with any LLM agent**  
+**Given** user prefers Claude Code, Codex, or OpenCode as their agent  
+**When** they start the agent in the wiki directory  
+**Then** the agent reads the schema file and operates the wiki following its conventions  
+**And** no custom app needed — the pattern works with any capable LLM agent
 
 #### 5) Functional requirements
 
 - **FR-01:** Supported: Anthropic, OpenAI, Google Gemini, Ollama, any OpenAI-compatible endpoint
-- **FR-02:** API keys in OS keychain (macOS Keychain, Windows Credential Manager, Linux Secret Service)
-- **FR-03:** Per-operation model: compile, qa, lint each independently configurable
-- **FR-04:** Token dashboard: cumulative tokens, estimated cost, breakdown by operation type, daily/weekly/monthly views
-- **FR-05:** Rate limiting: respect provider limits with exponential backoff + retry
-- **FR-06:** Model context window validation: warn if selected model's context < required for operation
-
-#### 6) UX / UI requirements
-
-- **Settings panel:** Provider list with status indicators (green = connected, red = error, gray = unconfigured)
-- **Model assignment:** 3 dropdowns (Compilation model, Q&A model, Linting model)
-- **Token dashboard:** Card with current month's usage, cost estimate, sparkline chart
-- **Test connection:** Button per provider with inline result
-
-#### 7) Edge cases
-
-- Provider goes down mid-compilation: save checkpoint, retry with backoff, offer provider switch
-- User removes API key for currently active provider: warn before removal, require alternative
-- Ollama model requires download: show download progress, don't block other operations
-
-#### 8) Non-functional requirements
-
-- **Security:** API keys never written to disk in plain text. Never logged. Never sent to Compendium servers.
-- **Resilience:** Graceful fallback if primary provider fails (configurable secondary provider)
-- **Audit:** Token usage logged locally in `~/.compendium/usage/[month].json`
-
-#### 9) Definition of done
-
-- All 4 providers tested (Anthropic, OpenAI, Gemini, Ollama)
-- Per-operation model assignment functional
-- Token dashboard accurate within 5% of actual API billing
-- API key storage verified in OS keychain (not file system)
-- Provider failure + retry tested
+- **FR-02:** API keys in OS keychain
+- **FR-03:** Per-operation model selection
+- **FR-04:** Token dashboard: cumulative tokens, cost, breakdown by operation
+- **FR-05:** Rate limiting with exponential backoff
+- **FR-06:** Also works as pure pattern: user can run any LLM agent (Claude Code, Codex, OpenCode/Pi) in the wiki directory with the schema file — no custom app required
 
 ---
 
@@ -1057,15 +1015,41 @@
 
 ```
 US-001 (Web clip) ──┐
-                     ├──→ US-003 (Initial compile) ──→ US-012 (Index) ──→ US-005 (Q&A)
-US-002 (File drop) ──┘          │                                              │
-                                │                                              ├──→ US-006 (Reports)
-                          US-004 (Incremental)                                 ├──→ US-007 (Slides)
-                                                                               │
-                                                                         US-008 (Filing) ──→ loops back to US-005
-                                                                               
-US-009 (Linting) ── depends on US-003 + US-012
-US-010 (Graph)   ── depends on US-003 + US-012
-US-011 (Search)  ── depends on US-003 + US-012
-US-013 (BYOM)    ── independent, but required by US-003, US-005, US-009
+                     ├──→ US-005 (Schema) ──→ US-003 (Compile) ──→ US-010 (index.md)
+US-002 (File drop) ──┘         │                    │                  US-011 (log.md)
+                               │                    │                       │
+                               │              US-004 (Incremental)          │
+                               │                                            │
+                               │                              US-006 (Q&A) ←┘
+                               │                                   │
+                               │                    ┌──────────────┼──────────────┐
+                               │                    │              │              │
+                               │              US-007 (Output)  US-008 (Filing) → loops back
+                               │                                            
+                               │              US-009 (Linting) ── depends on US-003 + US-010
+                               │              US-012 (Graph)   ── depends on US-003
+                               │              US-013 (Search)  ── depends on US-003
+                               │              US-014 (Git)     ── independent, wired into all
+                               │
+                         US-015 (BYOM) ── independent, required by US-003, US-006, US-009
 ```
+
+### New stories in v3 (vs. v2)
+
+| Story | What's new | Source |
+|---|---|---|
+| **US-005** | Schema file as first-class architecture layer, co-evolved with LLM | "The schema — a document that tells the LLM how the wiki is structured" |
+| **US-011** | log.md as distinct from index.md — append-only, parseable format | "log.md is chronological... parseable with simple unix tools" |
+| **US-014** | Git integration — wiki as repo with auto-commits | "The wiki is just a git repo of markdown files" |
+
+### Updated stories in v3
+
+| Story | What changed | Source |
+|---|---|---|
+| US-001 | Raw sources explicitly immutable. Image download via Obsidian hotkey. | "These are immutable — the LLM reads from them but never modifies them" |
+| US-003 | Two ingest modes (human-in-the-loop vs batch). log.md entries. 10–15 page touches per source. Page types (entity, concept, comparison, synthesis). Dataview-compatible frontmatter. | Multiple sections |
+| US-004 | "File this to our wiki" natural language trigger. Git commits. | "I just say 'file this new doc to our wiki'" |
+| US-007 | Added interactive HTML with JS output format | "dynamic html with js for sorting/filtering" |
+| US-008 | Stronger framing: "explorations compound just like ingested sources" | Core doc insight |
+| US-009 | Added: suggested questions, suggested sources, generative lint | "The LLM is good at suggesting new questions to investigate" |
+| US-013 | qmd as recommended tool with MCP server support | "qmd is a good option" |

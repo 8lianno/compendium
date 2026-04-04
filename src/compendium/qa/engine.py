@@ -49,12 +49,15 @@ def _parse_index(index_path: Path) -> list[dict[str, str]]:
         after_link = line[line.index("]]") + 2 :]
         remaining_cells = [c.strip() for c in after_link.split("|") if c.strip()]
 
+        page_type = remaining_cells[0] if remaining_cells else ""
+        summary = remaining_cells[1] if len(remaining_cells) > 1 else ""
         entries.append(
             {
                 "slug": slug,
                 "title": title,
-                "category": remaining_cells[0] if remaining_cells else "",
-                "summary": remaining_cells[1] if len(remaining_cells) > 1 else "",
+                "category": page_type,
+                "type": page_type,
+                "summary": summary,
             }
         )
 

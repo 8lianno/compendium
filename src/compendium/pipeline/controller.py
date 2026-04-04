@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, Any
 
 import frontmatter
 
+from compendium.core.templates import generate_schema_md
 from compendium.pipeline.checkpoint import (
     CompilationCheckpoint,
     StepCheckpoint,
@@ -49,6 +50,41 @@ class ProgressCallback:
     def report(self, step_name: str, current: int, total: int, detail: str = "") -> None:
         if self._callback:
             self._callback(step_name, current, total, detail)
+
+
+def _merge_concepts(existing: list[dict], incoming: list[dict]) -> list[dict]:
+    """Merge concept taxonomies by canonical name while preserving source coverage."""
+    merged: dict[str, dict] = {}
+
+    for concept in [*existing, *incoming]:
+        canonical = concept.get("canonical_name")
+        if not canonical:
+            continue
+        key = canonical.lower()
+        current = merged.get(key)
+        if current is None:
+            merged[key] = {
+                **concept,
+                "aliases": list(dict.fromkeys(concept.get("aliases", []))),
+            }
+            continue
+
+        merged[key] = {
+            **current,
+            **concept,
+            "canonical_name": current.get("canonical_name") or canonical,
+            "category": concept.get("category") or current.get("category", "concepts"),
+            "parent": concept.get("parent") or current.get("parent"),
+            "source_count": max(current.get("source_count", 0), concept.get("source_count", 0)),
+            "should_generate_article": bool(
+                current.get("should_generate_article") or concept.get("should_generate_article")
+            ),
+            "aliases": list(
+                dict.fromkeys([*current.get("aliases", []), *concept.get("aliases", [])])
+            ),
+        }
+
+    return sorted(merged.values(), key=lambda concept: concept["canonical_name"].lower())
 
 
 async def compile_wiki(
@@ -266,7 +302,10 @@ async def compile_wiki(
     (wfs.staging_dir / "CONFLICTS.md").write_text(conflicts_md)
 
     # Write SCHEMA.md to staging
-    schema_md = _generate_schema_md()
+    schema_md = _generate_schema_md(
+        config.templates.default,
+        config.templates.domain,
+    )
     (wfs.staging_dir / "SCHEMA.md").write_text(schema_md)
 
     # Promote staging to wiki/
@@ -279,16 +318,10 @@ async def compile_wiki(
         concepts_count=len(concepts),
         sources_count=len(source_data),
     )
-    _append_log(wfs.wiki_dir / "log.md", log_entry)
+    wfs.append_log_entry(log_entry)
 
     # Rebuild search index
-    try:
-        from compendium.search.engine import SearchEngine
-
-        engine = SearchEngine(wfs.wiki_dir)
-        engine.build_index()
-    except Exception:
-        pass  # Search index rebuild is best-effort
+    wfs.refresh_search_index()
 
     # -- Update dependency graph --
     deps = DependencyGraph()
@@ -331,6 +364,14 @@ async def compile_wiki(
     deps.mark_full_compile()
     deps.update_meta()
     deps.save(wfs.deps_path)
+
+    wfs.auto_commit(
+        "[rebuild]: compile wiki",
+        paths=[
+            wfs.wiki_dir,
+            wfs.deps_path,
+        ],
+    )
 
     # Clean up checkpoint
     if wfs.checkpoint_path.exists():
@@ -464,9 +505,18 @@ async def incremental_update(
             article_path.write_text(patched)
             articles_patched += 1
 
-    # --- Generate new articles for genuinely new concepts ---
+    existing_concepts = [
+        {
+            "canonical_name": concept.canonical,
+            "aliases": concept.aliases,
+            "category": concept.category,
+            "source_count": concept.source_count,
+            "should_generate_article": True,
+        }
+        for concept in deps.concepts.values()
+    ]
     all_summaries = new_summaries
-    all_concepts = new_concepts
+    all_concepts = _merge_concepts(existing_concepts, new_concepts)
 
     new_articles = await step_generate_articles(
         all_concepts,
@@ -504,13 +554,7 @@ async def incremental_update(
     (wfs.wiki_dir / "CONFLICTS.md").write_text(conflicts_md)
 
     # Rebuild search index
-    try:
-        from compendium.search.engine import SearchEngine
-
-        engine = SearchEngine(wfs.wiki_dir)
-        engine.build_index()
-    except Exception:
-        pass
+    wfs.refresh_search_index()
 
     # Update deps
     for sd in new_source_data:
@@ -518,6 +562,15 @@ async def incremental_update(
             content_hash=current_hashes.get(sd["path"], ""),
             compiled_at=datetime.now(UTC).isoformat(),
             concepts=[c.lower() for c in _get_source_concepts(sd["id"], new_summaries)],
+        )
+
+    for concept in all_concepts:
+        name_key = concept["canonical_name"].lower().replace(" ", "-")
+        deps.concepts[name_key] = ConceptEntry(
+            canonical=concept["canonical_name"],
+            aliases=concept.get("aliases", []),
+            source_count=concept.get("source_count", 0),
+            category=concept.get("category", "concepts"),
         )
 
     deps.mark_incremental()
@@ -531,7 +584,15 @@ async def incremental_update(
         sources_count=len(changed),
         notes=f"{articles_patched} articles patched, {len(all_affected)} affected",
     )
-    _append_log(wfs.wiki_dir / "log.md", log_entry)
+    wfs.append_log_entry(log_entry)
+
+    wfs.auto_commit(
+        "[schema-update]: incremental wiki update",
+        paths=[
+            wfs.wiki_dir,
+            wfs.deps_path,
+        ],
+    )
 
     return {
         "articles_added": len(new_articles),
@@ -683,71 +744,6 @@ def _sum_checkpoint_tokens(checkpoint: CompilationCheckpoint) -> tuple[int, int]
     return total_in, total_out
 
 
-def _generate_schema_md() -> str:
+def _generate_schema_md(template: str = "research", domain: str = "") -> str:
     """Generate SCHEMA.md documenting the wiki format."""
-    return """# Wiki Schema
-
-*Auto-generated by Compendium*
-
-## Directory Structure
-
-```
-wiki/
-  INDEX.md          # Master index table of all articles
-  CONCEPTS.md       # Concept taxonomy (hierarchical)
-  CONFLICTS.md      # Detected cross-source contradictions
-  SCHEMA.md         # This file — wiki format documentation
-  CHANGELOG.md      # Compilation history
-  HEALTH_REPORT.md  # Latest lint report
-  <category>/       # Article subdirectories by category
-    <article>.md    # Individual wiki articles
-```
-
-## Article Frontmatter
-
-```yaml
----
-title: "Article Title"
-id: "article-slug"
-category: "category-name"
-tags: ["tag1", "tag2"]
-sources:
-  - ref: "raw/source-file.md"
-    sections: ["1.1", "2.3"]
-origin: compilation      # compilation | qa-output | user-filed
-created_at: "ISO-8601"
-updated_at: "ISO-8601"
-compiled_by:
-  model: "model-name"
-  tokens_used: 1234
-word_count: 800
-status: published        # published | draft | stale | conflict
-related: ["[[other-article]]"]
-referenced_by: ["[[linking-article]]"]
----
-```
-
-## Wikilinks
-
-- Format: `[[article-slug]]` or `[[article-slug|Display Text]]`
-- Links resolve by matching the slug against article filenames
-- Bidirectional: articles track both `related` (outbound) and `referenced_by` (inbound)
-- Raw source references: `[[raw/source-name.md]]`
-
-## Index Format
-
-INDEX.md uses a markdown table:
-```
-| Article | Category | Summary |
-|---------|----------|---------|
-| [[slug|Title]] | category | One-line summary |
-```
-
-## Concepts Format
-
-CONCEPTS.md uses hierarchical headings:
-```
-## Category Name
-- **Concept Name** — N sources (aliases: alias1, alias2)
-```
-"""
+    return generate_schema_md(template, domain)

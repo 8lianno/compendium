@@ -3,9 +3,16 @@ import { defineConfig } from "vite";
 
 export default defineConfig({
   plugins: [svelte()],
+  resolve: {
+    conditions: ["browser"],
+  },
   build: {
     outDir: "../src/compendium/web/static",
     emptyOutDir: true,
+  },
+  test: {
+    environment: "jsdom",
+    setupFiles: "./src/test/setup.ts",
   },
   server: {
     proxy: {

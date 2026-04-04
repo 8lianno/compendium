@@ -45,7 +45,16 @@ class SearchEngine:
             rel = md_file.relative_to(self._wiki_dir)
             if any(part.startswith(".") for part in rel.parts):
                 continue
-            if md_file.name in ("INDEX.md", "CONCEPTS.md", "CONFLICTS.md", "CHANGELOG.md"):
+            if md_file.name in (
+                "INDEX.md",
+                "CONCEPTS.md",
+                "CONFLICTS.md",
+                "CHANGELOG.md",
+                "HEALTH_REPORT.md",
+                "SCHEMA.md",
+                "log.md",
+                "overview.md",
+            ):
                 continue
 
             try:

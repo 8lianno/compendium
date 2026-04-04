@@ -36,6 +36,20 @@ class CompilationConfig(BaseModel):
     category_depth: int = 2
 
 
+class TemplateConfig(BaseModel):
+    """Starter schema template selection."""
+
+    default: str = "research"
+    domain: str = ""
+
+
+class LintConfig(BaseModel):
+    """Lint scheduling and enrichment settings."""
+
+    schedule: str = "manual"
+    missing_data_web_search: bool = False
+
+
 class ServerConfig(BaseModel):
     """Local server settings."""
 
@@ -55,6 +69,8 @@ class CompendiumConfig(BaseModel):
     project: ProjectConfig = Field(default_factory=ProjectConfig)
     models: ModelsConfig = Field(default_factory=ModelsConfig)
     compilation: CompilationConfig = Field(default_factory=CompilationConfig)
+    templates: TemplateConfig = Field(default_factory=TemplateConfig)
+    lint: LintConfig = Field(default_factory=LintConfig)
     server: ServerConfig = Field(default_factory=ServerConfig)
 
     @classmethod
@@ -80,6 +96,6 @@ class CompendiumConfig(BaseModel):
         """Save config to a compendium.toml file."""
         import tomli_w  # type: ignore[import-untyped]
 
-        data = self.model_dump(mode="json")
+        data = self.model_dump(mode="json", exclude_none=True)
         with open(path, "wb") as f:
             tomli_w.dump(data, f)

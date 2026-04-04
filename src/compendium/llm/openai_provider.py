@@ -13,6 +13,7 @@ from compendium.llm.provider import (
     TokenPricing,
     TokenUsage,
 )
+from compendium.llm.retry import with_retry
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
@@ -90,7 +91,7 @@ class OpenAIProvider:
         if request.stop_sequences:
             kwargs["stop"] = request.stop_sequences
 
-        response = await self._client.chat.completions.create(**kwargs)
+        response = await with_retry(self._client.chat.completions.create, **kwargs)
         choice = response.choices[0]
         usage = response.usage
 
@@ -136,7 +137,8 @@ class OpenAIProvider:
 
     async def test_connection(self) -> bool:
         try:
-            response = await self._client.chat.completions.create(
+            response = await with_retry(
+                self._client.chat.completions.create,
                 model=self._model,
                 messages=[{"role": "user", "content": "ping"}],
                 max_tokens=5,

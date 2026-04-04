@@ -1,4 +1,4 @@
-"""Output rendering — markdown reports, Marp slides, matplotlib charts."""
+"""Output rendering — markdown reports, Marp slides, HTML, and charts."""
 
 from __future__ import annotations
 
@@ -131,6 +131,124 @@ def render_slides(
     return output_path
 
 
+def render_html(
+    query: str,
+    answer: str,
+    sources_used: list[str],
+    output_dir: Path,
+) -> Path:
+    """Render a standalone HTML answer with inline styles and small interaction."""
+    now = datetime.now(UTC)
+    date_str = now.strftime("%Y-%m-%d")
+    slug = re.sub(r"[^\w\s-]", "", query.lower()[:60])
+    slug = re.sub(r"[\s_]+", "-", slug).strip("-")
+
+    paragraphs = [
+        f"<p>{line.strip()}</p>"
+        for line in answer.split("\n\n")
+        if line.strip()
+    ]
+    source_items = "".join(f"<li>{source}</li>" for source in sources_used)
+    html = f"""<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>{query[:80]}</title>
+  <style>
+    :root {{
+      --bg: #f6f0e7;
+      --panel: #fffaf3;
+      --ink: #1f1a17;
+      --muted: #6e6257;
+      --accent: #9a3412;
+      --border: #e7d8c6;
+    }}
+    * {{ box-sizing: border-box; }}
+    body {{
+      margin: 0;
+      font-family: Georgia, "Iowan Old Style", serif;
+      background: radial-gradient(circle at top, #fff8ef, var(--bg));
+      color: var(--ink);
+    }}
+    .shell {{
+      max-width: 960px;
+      margin: 0 auto;
+      padding: 32px 20px 72px;
+    }}
+    .hero, .panel {{
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      box-shadow: 0 18px 50px rgba(31, 26, 23, 0.08);
+    }}
+    .hero {{
+      padding: 32px;
+      margin-bottom: 20px;
+    }}
+    .eyebrow {{
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
+      color: var(--accent);
+      font-size: 12px;
+    }}
+    h1 {{ margin: 10px 0 8px; font-size: clamp(2rem, 4vw, 3.5rem); }}
+    .meta {{ color: var(--muted); margin: 0; }}
+    .panel {{
+      padding: 28px;
+      margin-top: 18px;
+    }}
+    .answer p {{
+      line-height: 1.7;
+      font-size: 1.05rem;
+    }}
+    button {{
+      background: var(--accent);
+      color: white;
+      border: 0;
+      border-radius: 999px;
+      padding: 10px 16px;
+      cursor: pointer;
+      margin-top: 16px;
+    }}
+    ul {{ color: var(--muted); }}
+    .collapsed {{ display: none; }}
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <section class="hero">
+      <div class="eyebrow">Compendium HTML Output</div>
+      <h1>{query[:80]}</h1>
+      <p class="meta">Generated {date_str}</p>
+      <button onclick="document.getElementById('sources').classList.toggle('collapsed')">
+        Toggle sources
+      </button>
+    </section>
+    <section class="panel answer">
+      <h2>Answer</h2>
+      {''.join(paragraphs)}
+    </section>
+    <section class="panel">
+      <h2>Sources</h2>
+      <ul id="sources">{source_items}</ul>
+    </section>
+  </div>
+</body>
+</html>
+"""
+
+    reports_dir = output_dir / "reports"
+    reports_dir.mkdir(parents=True, exist_ok=True)
+    output_path = reports_dir / f"{date_str}-{slug}.html"
+    counter = 2
+    while output_path.exists():
+        output_path = reports_dir / f"{date_str}-{slug}-{counter}.html"
+        counter += 1
+    output_path.write_text(html)
+    return output_path
+
+
 def _split_into_sections(text: str, target_count: int) -> list[dict[str, str]]:
     """Split text into sections suitable for slides."""
     # Try to split by markdown headings first
@@ -206,6 +324,50 @@ def render_chart(
     fig.savefig(output_path, dpi=150)
     plt.close(fig)
     return output_path
+
+
+def render_chart_bundle(
+    query: str,
+    answer: str,
+    sources_used: list[str],
+    output_dir: Path,
+) -> tuple[Path | None, Path]:
+    """Render a chart plus a companion markdown note."""
+    wikilinks = re.findall(r"\[\[([^\]|]+)(?:\|[^\]]+)?\]\]", answer)
+    counts: dict[str, float] = {}
+    for source in wikilinks or sources_used:
+        label = source.replace("raw/", "").replace(".md", "")
+        counts[label] = counts.get(label, 0) + 1
+    if not counts:
+        counts = {"answer": max(1, len(answer.split()) // 100)}
+
+    png_path = render_chart(f"Chart: {query[:60]}", counts, output_dir)
+
+    now = datetime.now(UTC)
+    date_str = now.strftime("%Y-%m-%d")
+    slug = re.sub(r"[^\w\s-]", "", query.lower()[:60])
+    slug = re.sub(r"[\s_]+", "-", slug).strip("-")
+    note_path = (output_dir / "charts" / f"{date_str}-{slug}.md").resolve()
+    note_path.parent.mkdir(parents=True, exist_ok=True)
+    note_path.write_text(
+        frontmatter.dumps(
+            frontmatter.Post(
+                (
+                    f"# Chart: {query}\n\n"
+                    f"![Chart]({png_path.name if png_path else ''})\n\n"
+                    "## Data\n\n"
+                    + "\n".join(f"- {key}: {value}" for key, value in counts.items())
+                ),
+                title=f"Chart: {query[:80]}",
+                type="chart",
+                query=query,
+                generated_at=now.isoformat(),
+                sources_used=sources_used,
+                filed_to_wiki=False,
+            )
+        )
+    )
+    return png_path, note_path
 
 
 def render_canvas(

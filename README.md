@@ -1,109 +1,385 @@
 # Compendium
 
-**LLM-native knowledge compiler** — compile research sources into a living, queryable markdown wiki.
+Compendium is a local-first knowledge tool that turns a pile of source material into a living
+markdown wiki.
 
-Raw sources go in, a structured wiki comes out. Ask questions, get cited answers, file outputs back. Your knowledge compounds.
+In simple terms:
 
-## Quick Start
+- You drop files and web clips into `raw/`
+- Compendium reads them and writes structured notes into `wiki/`
+- You ask questions against the wiki instead of against the raw files
+- You can save useful answers back into the wiki so the knowledge base keeps improving
 
-```bash
-# Install
-uv tool install compendium
+The project is built for people who want their research, notes, and generated outputs to stay on
+disk in plain files instead of being trapped inside a hosted app.
 
-# Create a project
-compendium init my-wiki
-cd my-wiki
+## The Idea
 
-# Configure your LLM
-compendium config set-key anthropic
+Most research workflows are messy:
 
-# Add sources
-compendium ingest paper.pdf article.md data.csv
+- PDFs live in one folder
+- clipped articles live somewhere else
+- notes are manual and inconsistent
+- AI outputs are useful for five minutes and then disappear
 
-# Compile into a wiki
-compendium compile
+Compendium tries to fix that by creating one loop:
 
-# Ask questions
-compendium ask "What are the key findings across all sources?"
+1. Ingest source material
+2. Compile it into a clean wiki
+3. Ask questions against that wiki
+4. Turn useful answers into permanent pages
+5. Rebuild search, graph, and indexes automatically
 
-# Generate a report
-compendium ask "Compare methodology A vs B" --output report
+The end result is not just "chat with files". It is a small knowledge system that keeps getting
+better as you use it.
 
-# Search
-compendium search "attention mechanisms"
+## What It Does
 
-# Health check
-compendium lint
+Compendium currently includes:
 
-# Start the web UI
-compendium serve
-```
+- file and web ingestion
+- duplicate handling for incoming sources
+- PDF extraction with OCR support
+- a compile/update pipeline that writes wiki pages
+- interactive and batch compile modes
+- question answering with citations
+- report, slides, HTML, and chart outputs
+- filing generated outputs back into the wiki
+- full-text search
+- a knowledge graph
+- wiki linting and health checks
+- a local web app for the main operations
 
 ## How It Works
 
-1. **Ingest** sources — PDFs, markdown, web clips, CSVs
-2. **Compile** via 6-step LLM pipeline: summarize, extract concepts, generate articles, create backlinks, build index, detect conflicts
-3. **Query** with cited, multi-hop answers grounded in your wiki
-4. **File back** — Q&A outputs become wiki articles, closing the feedback loop
-5. **Lint** — automated health checks catch broken links, contradictions, and gaps
+At a high level, the flow looks like this:
 
-## Architecture
-
-```
-your-wiki/
-  compendium.toml       # Project config
-  raw/                  # Your source documents
-  wiki/                 # LLM-compiled articles
-    INDEX.md            # Master index
-    CONCEPTS.md         # Concept taxonomy
-    CONFLICTS.md        # Detected contradictions
-    concepts/           # Article subdirectories
-    methods/
-  output/               # Q&A reports, slides, charts
+```text
+raw sources -> summaries -> concepts -> wiki pages -> search/index/graph
+                                           |
+                                           v
+                                   Q&A and generated outputs
+                                           |
+                                           v
+                                  file useful outputs back
 ```
 
-## Features
+The important idea is that the wiki is the center of the system.
 
-- **Local-first** — all data on your disk, zero telemetry
-- **BYOM** — Anthropic Claude, OpenAI GPT, Ollama (local), per-operation model selection
-- **6-step compilation** — summarize, concepts, articles, backlinks, index, conflicts
-- **Incremental updates** — add one source, update only affected articles
-- **Checkpoint/resume** — compilation survives interruptions
-- **Q&A engine** — index-first retrieval, cited answers with `[[wikilinks]]`
-- **Output rendering** — markdown reports, Marp slide decks, matplotlib charts
-- **Feedback filing** — Q&A outputs become wiki articles with auto-backlinks
-- **Full-text search** — BM25 ranking, CLI + web UI
-- **Wiki linting** — broken links, orphans, staleness, coverage gaps
-- **Knowledge graph** — D3.js force-directed visualization
-- **Web clipper** — Chrome/Firefox extension clips articles with local images
-- **Obsidian compatible** — `[[wikilinks]]`, flat markdown, works in Obsidian
+- `raw/` is the input
+- `wiki/` is the durable knowledge layer
+- `output/` is where generated artifacts land before optional filing
 
-## CLI Reference
+## Repository Layout
 
-| Command | Description |
-|---------|-------------|
-| `compendium init [path]` | Create a new project |
-| `compendium ingest <files...>` | Ingest PDF, MD, CSV, images |
-| `compendium compile` | Full 6-step wiki compilation |
-| `compendium update [--all-new]` | Incremental update |
-| `compendium ask "question"` | Q&A against wiki |
-| `compendium search "query"` | Full-text search |
-| `compendium lint` | Run health checks |
-| `compendium status` | Project overview |
-| `compendium serve` | Start web UI on :17394 |
-| `compendium config set-key <provider>` | Store API key |
-| `compendium config test` | Test LLM connections |
+This repository contains the Compendium application itself, not a sample knowledge project.
 
-## Development
+```text
+src/compendium/         Python backend, CLI, pipeline, and app server
+frontend/               Svelte web app that builds into the backend's static files
+extension/              Browser clipper extension
+prompts/                Prompt files used by the compile and Q&A pipeline
+tests/                  Backend and integration tests
+README.md               This file
+pyproject.toml          Python package and dependency config
+```
+
+## Code Overview In Simple Terms
+
+If you are new to the codebase, these are the most important areas:
+
+### Backend entry points
+
+- `src/compendium/cli.py`
+  - The command-line app.
+  - This is where commands like `init`, `ingest`, `compile`, `update`, `ask`, `lint`, and
+    `serve` are defined.
+
+- `src/compendium/server.py`
+  - The FastAPI server.
+  - It powers the local web app and exposes the API used by the frontend.
+
+### Core filesystem and config
+
+- `src/compendium/core/wiki_fs.py`
+  - Handles project folders and wiki file operations.
+  - Also handles log writes, search refreshes, and auto-commit helpers.
+
+- `src/compendium/core/config.py`
+  - Defines the project config model loaded from `compendium.toml`.
+
+- `src/compendium/core/templates.py`
+  - Starter schema templates such as `research`, `book-reading`, and `competitive-analysis`.
+
+### Ingestion
+
+- `src/compendium/ingest/file_drop.py`
+  - Batch file ingestion.
+  - Handles worker concurrency, duplicate rules, and per-file results.
+
+- `src/compendium/ingest/pdf.py`
+  - PDF extraction and OCR-related metadata.
+
+- `src/compendium/ingest/web_clip.py`
+  - Web clipping logic, metadata capture, duplicate resolution, and raw HTML fallback.
+
+### Compilation pipeline
+
+- `src/compendium/pipeline/controller.py`
+  - Runs the main compile/update flow.
+  - Regenerates wiki artifacts like `INDEX.md` and `CONCEPTS.md`.
+
+- `src/compendium/pipeline/steps.py`
+  - Contains the lower-level wiki generation and logging steps.
+
+- `src/compendium/pipeline/sessions.py`
+  - Handles interactive compile/update sessions and approval flow.
+
+### Q&A and output filing
+
+- `src/compendium/qa/engine.py`
+  - Answers questions against the wiki.
+
+- `src/compendium/qa/output.py`
+  - Renders reports, slides, standalone HTML, and chart bundles.
+
+- `src/compendium/qa/filing.py`
+  - Files generated outputs back into the wiki with merge/replace/keep-both rules.
+
+### Search and linting
+
+- `src/compendium/search/engine.py`
+  - Full-text search over the wiki.
+
+- `src/compendium/lint/engine.py`
+  - Health checks for broken links, stale content, contradictions, and coverage gaps.
+
+### LLM providers
+
+- `src/compendium/llm/factory.py`
+  - Creates the provider used for each operation.
+
+- `src/compendium/llm/anthropic.py`
+- `src/compendium/llm/openai_provider.py`
+- `src/compendium/llm/gemini.py`
+- `src/compendium/llm/ollama.py`
+  - Concrete provider integrations.
+
+- `src/compendium/llm/retry.py`
+  - Shared retry/backoff logic for remote model calls.
+
+### Frontend
+
+- `frontend/src/App.svelte`
+  - The main app shell.
+
+- `frontend/src/pages/Ingest.svelte`
+- `frontend/src/pages/Compile.svelte`
+- `frontend/src/pages/Outputs.svelte`
+- `frontend/src/pages/Search.svelte`
+- `frontend/src/pages/Graph.svelte`
+- `frontend/src/pages/Lint.svelte`
+- `frontend/src/pages/Settings.svelte`
+- `frontend/src/pages/Status.svelte`
+- `frontend/src/pages/Viewer.svelte`
+  - The main user-facing screens.
+
+The frontend talks to the FastAPI backend through `frontend/src/lib/api.ts`.
+
+## What a Compendium Project Looks Like
+
+When you run `compendium init`, you get a local knowledge workspace that looks roughly like this:
+
+```text
+my-wiki/
+  compendium.toml
+  raw/
+    .clip-log.json
+    images/
+    originals/
+  wiki/
+    INDEX.md
+    CONCEPTS.md
+    log.md
+    ...
+  output/
+  prompts/
+```
+
+The important folders are:
+
+- `raw/`: original source material and ingest artifacts
+- `wiki/`: compiled knowledge pages and indexes
+- `output/`: generated reports, slides, HTML, and chart notes
+
+## Using Compendium
+
+### 1. Install dependencies for this repository
 
 ```bash
-git clone https://github.com/youruser/compendium
-cd compendium
-uv sync
-uv run pytest tests/ -v    # 121 tests
-uv run ruff check src/     # Lint
-cd frontend && pnpm build  # Build web UI
+uv sync --group dev
+cd frontend
+pnpm install
+cd ..
 ```
+
+### 2. Create a knowledge project
+
+```bash
+uv run compendium init demo-wiki --template research
+cd demo-wiki
+```
+
+### 3. Configure a model provider
+
+For example:
+
+```bash
+uv run compendium config set-key anthropic
+```
+
+You can also point some operations at Ollama if you want a local model.
+
+### 4. Add sources
+
+```bash
+uv run compendium ingest ~/Downloads/paper.pdf ~/Downloads/notes.md
+```
+
+### 5. Compile the wiki
+
+Batch mode:
+
+```bash
+uv run compendium compile --mode batch
+```
+
+Interactive mode:
+
+```bash
+uv run compendium compile --mode interactive
+```
+
+### 6. Ask questions
+
+```bash
+uv run compendium ask "What are the main themes across these sources?"
+```
+
+Generate a report:
+
+```bash
+uv run compendium ask "Compare the strongest arguments" --output report
+```
+
+Generate slides and file them back into the wiki:
+
+```bash
+uv run compendium ask "Summarize this for a team update" --output slides --file
+```
+
+### 7. Start the local web app
+
+```bash
+uv run compendium serve
+```
+
+Then open:
+
+```text
+http://127.0.0.1:17394
+```
+
+## Main CLI Commands
+
+```bash
+uv run compendium init
+uv run compendium ingest
+uv run compendium compile
+uv run compendium update
+uv run compendium ask
+uv run compendium search
+uv run compendium lint
+uv run compendium status
+uv run compendium usage
+uv run compendium serve
+uv run compendium config set-key
+uv run compendium config test
+```
+
+Useful examples:
+
+```bash
+uv run compendium update --all-new
+uv run compendium ask "Turn this into a summary page" --output html --file
+uv run compendium search "retrieval augmented generation"
+uv run compendium lint --deep
+```
+
+## Running the Codebase Locally as a Developer
+
+### Backend
+
+```bash
+uv sync --group dev
+```
+
+### Frontend
+
+```bash
+cd frontend
+pnpm install
+pnpm build
+cd ..
+```
+
+The frontend build output is written into:
+
+```text
+src/compendium/web/static/
+```
+
+That is what the backend serves when you run `compendium serve`.
+
+## Tests and Checks
+
+Backend:
+
+```bash
+uv run pytest tests -q
+uv run ruff check src tests
+```
+
+Frontend:
+
+```bash
+cd frontend
+pnpm test
+pnpm build
+```
+
+## Design Principles
+
+Compendium is built around a few simple rules:
+
+- local-first files over hosted lock-in
+- markdown wiki as the source of truth
+- explicit indexes and logs instead of hidden state
+- model choice per operation instead of one global provider
+- generated outputs should be reusable, not disposable
+
+## Current Status
+
+This codebase already includes:
+
+- CLI workflow
+- FastAPI backend
+- Svelte operations UI
+- browser clipper files
+- ingestion, compile/update, Q&A, filing, search, graph, and lint flows
+
+It is best thought of as an application for building and maintaining a personal or team knowledge
+wiki with LLM assistance.
 
 ## License
 

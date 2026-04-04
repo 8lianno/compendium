@@ -103,6 +103,7 @@ def _insert_backlinks(filed_path: Path, wiki_dir: Path) -> int:
 def file_to_wiki(
     report_path: Path,
     wfs: WikiFileSystem,
+    resolution: str | None = None,
 ) -> dict:
     """File a Q&A output (report or slides) into the wiki.
 
@@ -134,12 +135,14 @@ def file_to_wiki(
 
     # Check for similar article
     similar = _find_similar_article(title, wfs.wiki_dir)
-    if similar:
+    if similar and resolution not in {"replace", "merge", "keep_both"}:
         return {
             "status": "similar",
             "message": f"Similar article exists: {similar.name}",
             "similar_path": str(similar),
         }
+    if resolution == "cancel":
+        return {"status": "cancelled", "message": "Filing cancelled"}
 
     # Detect category
     concepts_path = wfs.wiki_dir / "CONCEPTS.md"
@@ -160,40 +163,58 @@ def file_to_wiki(
 
     slug = re.sub(r"[^\w\s-]", "", title.lower()[:80])
     slug = re.sub(r"[\s_]+", "-", slug).strip("-")
-    filed_path = category_dir / f"{slug}.md"
+    existing_path = similar if similar and similar.exists() else category_dir / f"{slug}.md"
+    action = resolution or "keep_both"
 
-    counter = 2
-    while filed_path.exists():
-        filed_path = category_dir / f"{slug}-{counter}.md"
-        counter += 1
-
-    filed_path.write_text(frontmatter.dumps(post))
+    if action == "replace" and existing_path.exists():
+        filed_path = existing_path
+        post.metadata["updated_at"] = datetime.now(UTC).isoformat()
+        filed_path.write_text(frontmatter.dumps(post))
+    elif action == "merge" and existing_path.exists():
+        existing_post = frontmatter.load(str(existing_path))
+        merged_body = existing_post.content.rstrip()
+        merged_body += f"\n\n## QA Output Merge\n\n{content.strip()}\n"
+        existing_post.content = merged_body
+        existing_post.metadata["updated_at"] = datetime.now(UTC).isoformat()
+        existing_post.metadata["origin"] = existing_post.metadata.get("origin", "qa-output")
+        existing_post.metadata["content_hash"] = text_hash(existing_post.content)
+        filed_path = existing_path
+        filed_path.write_text(frontmatter.dumps(existing_post))
+    else:
+        filed_path = category_dir / f"{slug}.md"
+        counter = 2
+        while filed_path.exists():
+            filed_path = category_dir / f"{slug}-{counter}.md"
+            counter += 1
+        filed_path.write_text(frontmatter.dumps(post))
+        action = "keep_both"
 
     # Insert backlinks
     backlinks_added = _insert_backlinks(filed_path, wfs.wiki_dir)
 
-    # Update INDEX.md
-    index_path = wfs.wiki_dir / "INDEX.md"
-    if index_path.exists():
-        index_content = index_path.read_text()
-        summary = content.strip().split("\n")[0][:100] if content.strip() else ""
-        new_entry = f"| [[{slug}|{title}]] | {category} | {summary} |\n"
-        # Insert before the last line
-        index_content = index_content.rstrip() + "\n" + new_entry
-        index_path.write_text(index_content)
+    from compendium.pipeline.index_ops import rebuild_wiki_index
+
+    rebuild_wiki_index(wfs.wiki_dir)
+    wfs.refresh_search_index()
 
     # Append to log.md
-    log_path = wfs.wiki_dir / "log.md"
     from compendium.pipeline.steps import build_log_entry
 
-    log_entry = build_log_entry("file to wiki", notes=f"Filed '{title}' to {category}/")
-    from compendium.pipeline.controller import _append_log
-
-    _append_log(log_path, log_entry)
+    log_entry = build_log_entry(
+        "file",
+        title=title[:80],
+        notes=f"Action: {action}; category: {category}; backlinks added: {backlinks_added}",
+    )
+    wfs.append_log_entry(log_entry)
+    wfs.auto_commit(
+        f"[file]: {title[:72]}",
+        paths=[filed_path, wfs.wiki_dir / "INDEX.md", wfs.wiki_dir / "log.md"],
+    )
 
     return {
         "status": "filed",
         "filed_path": str(filed_path),
         "category": category,
         "backlinks_added": backlinks_added,
+        "action": action,
     }
