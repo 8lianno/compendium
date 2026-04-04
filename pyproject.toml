@@ -1,0 +1,74 @@
+[project]
+name = "compendium"
+version = "0.1.0"
+description = "LLM-native knowledge compiler — compile research sources into a living, queryable markdown wiki"
+readme = "README.md"
+authors = [
+    { name = "Ali Naserifar", email = "8lianno@gmail.com" }
+]
+requires-python = ">=3.12"
+dependencies = [
+    # CLI
+    "typer>=0.15",
+    "rich>=14",
+    # Web server
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.34",
+    "websockets>=15",
+    # LLM providers
+    "anthropic>=0.52",
+    "openai>=1.82",
+    "httpx>=0.28",
+    # Markdown / frontmatter
+    "python-frontmatter>=1.1",
+    # Config / validation
+    "pydantic>=2.11",
+    # Keychain
+    "keyring>=25",
+    # Ingestion
+    "pymupdf>=1.27",
+    "readability-lxml>=0.8",
+    "markdownify>=0.14",
+    # Search
+    "whoosh>=2.7",
+]
+
+[project.optional-dependencies]
+charts = ["matplotlib>=3.10"]
+gemini = ["google-genai>=1.14"]
+all = [
+    "compendium[ingest,search,charts,gemini]",
+]
+
+[project.scripts]
+compendium = "compendium.cli:app"
+
+[build-system]
+requires = ["uv_build>=0.9.26,<0.10.0"]
+build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "pytest>=8",
+    "pytest-asyncio>=1.0",
+    "ruff>=0.11",
+    "mypy>=1.15",
+    "pytest-cov>=6",
+]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "UP", "B", "SIM", "TCH"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+warn_return_any = true
+warn_unused_configs = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"

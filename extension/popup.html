@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      width: 320px;
+      padding: 16px;
+      font-family: -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+      font-size: 14px;
+      background: #0f1117;
+      color: #e1e4ea;
+    }
+    .header { display: flex; align-items: center; gap: 8px; margin-bottom: 16px; }
+    .header h1 { font-size: 16px; color: #6c8cff; }
+    .status {
+      padding: 12px;
+      border-radius: 8px;
+      text-align: center;
+      margin-bottom: 12px;
+    }
+    .status.idle { background: #1a1d27; }
+    .status.success { background: #166534; }
+    .status.error { background: #7f1d1d; }
+    .status.loading { background: #1a1d27; }
+    button {
+      width: 100%;
+      padding: 10px;
+      border: none;
+      border-radius: 8px;
+      background: #6c8cff;
+      color: white;
+      font-size: 14px;
+      cursor: pointer;
+    }
+    button:hover { background: #8aa4ff; }
+    button:disabled { opacity: 0.5; cursor: not-allowed; }
+    .info { font-size: 12px; color: #8b8fa3; margin-top: 8px; text-align: center; }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <h1>Compendium</h1>
+  </div>
+  <div id="status" class="status idle">Ready to clip</div>
+  <button id="clipBtn">Clip this page</button>
+  <div id="info" class="info"></div>
+
+  <script src="popup.js"></script>
+</body>
+</html>
