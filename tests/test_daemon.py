@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import time
 from typing import TYPE_CHECKING
+from unittest.mock import patch
 
 from compendium.core.wiki_fs import WikiFileSystem
 from compendium.daemon.engine import (
@@ -226,6 +227,105 @@ class TestDaemonLogging:
 
         # File didn't exist, so no ingest and no error (gracefully skipped)
         assert engine.stats.files_ingested == 0
+
+
+# -- Resume catch-up scan --
+
+
+class TestResumeCatchUp:
+    def test_resume_queues_existing_files(self, tmp_path: Path) -> None:
+        wfs = _make_wfs(tmp_path)
+        engine = DaemonEngine(wfs, debounce_seconds=0, auto_compile=False)
+
+        # Drop a file into raw/ while "paused"
+        (wfs.raw_dir / "missed-note.md").write_text("# Missed\nContent.")
+
+        engine.pause()
+        engine.resume()
+
+        # The catch-up scan should have queued the file
+        assert len(engine._batch) >= 1
+
+    def test_resume_ignores_dotfiles(self, tmp_path: Path) -> None:
+        wfs = _make_wfs(tmp_path)
+        engine = DaemonEngine(wfs, debounce_seconds=0, auto_compile=False)
+
+        (wfs.raw_dir / ".hidden.md").write_text("hidden")
+
+        engine.pause()
+        engine.resume()
+
+        # Dotfiles should not be queued
+        paths = [e.path for e in engine._batch]
+        assert not any(".hidden" in p for p in paths)
+
+
+# -- Force sync feedback --
+
+
+class TestForceSync:
+    def test_force_sync_returns_false_when_empty(self, tmp_path: Path) -> None:
+        wfs = _make_wfs(tmp_path)
+        engine = DaemonEngine(wfs, debounce_seconds=0, auto_compile=False)
+        # Patch Apple Books to return nothing (avoids real DB on dev machines)
+        with patch("compendium.daemon.engine.DaemonEngine._poll_apple_books"):
+            did_work = engine.force_sync()
+        assert did_work is False
+
+    def test_force_sync_returns_true_when_files_ingested(self, tmp_path: Path) -> None:
+        wfs = _make_wfs(tmp_path)
+        engine = DaemonEngine(wfs, debounce_seconds=0, auto_compile=False)
+
+        # Drop a file into raw/
+        (wfs.raw_dir / "new-note.md").write_text("# New\nContent.")
+
+        did_work = engine.force_sync()
+        assert did_work is True
+        assert engine.stats.files_ingested >= 1
+
+
+# -- Log.md parsing --
+
+
+class TestLogParsing:
+    def test_parse_recent_entries(self, tmp_path: Path) -> None:
+        from compendium.daemon.menubar import _parse_recent_log_entries
+
+        wfs = _make_wfs(tmp_path)
+        wfs.wiki_dir.mkdir(exist_ok=True)
+        log_path = wfs.wiki_dir / "log.md"
+        log_path.write_text(
+            "---\ntitle: Wiki Log\n---\n\n# Wiki Log\n\n"
+            "## [2026-04-05] ingest | paper.pdf\n\n"
+            "- event: daemon-batch\n- result: Ingested PDF\n\n"
+            "## [2026-04-05] compile | incremental\n\n"
+            "- articles_added: 3\n- concepts_new: 2\n\n"
+            "## [2026-04-05] ingest | notes.md\n\n"
+            "- event: watch\n- result: Ingested notes.md\n"
+        )
+
+        entries = _parse_recent_log_entries(wfs, limit=2)
+        assert len(entries) == 2
+        # Should have the last 2 entries
+        assert "compile" in entries[0]
+        assert "notes.md" in entries[1]
+
+    def test_parse_empty_log(self, tmp_path: Path) -> None:
+        from compendium.daemon.menubar import _parse_recent_log_entries
+
+        wfs = _make_wfs(tmp_path)
+        entries = _parse_recent_log_entries(wfs, limit=5)
+        assert entries == []
+
+    def test_parse_no_entries(self, tmp_path: Path) -> None:
+        from compendium.daemon.menubar import _parse_recent_log_entries
+
+        wfs = _make_wfs(tmp_path)
+        wfs.wiki_dir.mkdir(exist_ok=True)
+        (wfs.wiki_dir / "log.md").write_text("# Wiki Log\n\nNo entries yet.\n")
+
+        entries = _parse_recent_log_entries(wfs, limit=5)
+        assert entries == []
 
 
 # -- DaemonConfig --

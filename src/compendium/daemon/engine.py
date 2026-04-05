@@ -148,16 +148,50 @@ class DaemonEngine:
         logger.info("Daemon paused")
 
     def resume(self) -> None:
-        """Resume from paused state."""
+        """Resume from paused state and scan for files missed while paused."""
         self._set_state(DaemonState.IDLE)
         self._add_log("Daemon resumed")
         logger.info("Daemon resumed")
+        self._catch_up_scan()
 
-    def force_sync(self) -> None:
-        """Force immediate processing of any pending batch + Apple Books poll."""
+    def _catch_up_scan(self) -> None:
+        """Scan raw/ for uncompiled files that arrived while paused."""
+        if not self.wfs.raw_dir.exists():
+            return
+        for child in self.wfs.raw_dir.iterdir():
+            if (
+                child.is_file()
+                and child.suffix.lower() in SUPPORTED_EXTENSIONS
+                and not child.name.startswith((".", "~"))
+            ):
+                self.enqueue(str(child))
+        count = len(self._batch)
+        if count:
+            self._add_log(f"Catch-up scan: {count} file(s) queued")
+            logger.info("Catch-up scan queued %d file(s)", count)
+
+    def force_sync(self) -> bool:
+        """Force immediate processing of any pending batch + Apple Books poll.
+
+        Returns True if any work was done, False if vault is already up to date.
+        """
         self._add_log("Manual sync triggered")
+        before_ingested = self.stats.files_ingested
+        before_compiled = self.stats.compilations_run
+        before_books = self.stats.books_synced
+
+        self._catch_up_scan()
         self._process_batch()
         self._poll_apple_books()
+
+        did_work = (
+            self.stats.files_ingested > before_ingested
+            or self.stats.compilations_run > before_compiled
+            or self.stats.books_synced > before_books
+        )
+        if not did_work:
+            self._add_log("Vault is up to date")
+        return did_work
 
     def enqueue(self, path: str) -> None:
         """Add a file event to the batch queue, resetting the debounce timer."""
