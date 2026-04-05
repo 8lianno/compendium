@@ -115,6 +115,9 @@ If you are new to the codebase, these are the most important areas:
 - `src/compendium/ingest/web_clip.py`
   - Web clipping logic, metadata capture, duplicate resolution, and raw HTML fallback.
 
+- `src/compendium/ingest/apple_books.py`
+  - Extracts highlights and annotations from Apple Books on macOS.
+
 ### Compilation pipeline
 
 - `src/compendium/pipeline/controller.py`
@@ -229,6 +232,8 @@ You can also point some operations at Ollama if you want a local model.
 
 ```bash
 uv run compendium ingest ~/Downloads/paper.pdf ~/Downloads/notes.md
+uv run compendium clip https://example.com/article
+uv run compendium apple-books
 ```
 
 ### 5. Compile the wiki
@@ -282,6 +287,8 @@ OS automation (Hazel, Shortcuts), cloud sync, and voice transcriptions.
 ```bash
 uv run compendium init
 uv run compendium ingest
+uv run compendium clip
+uv run compendium apple-books
 uv run compendium compile
 uv run compendium update
 uv run compendium ask
@@ -298,6 +305,8 @@ Useful examples:
 
 ```bash
 uv run compendium update --all-new
+uv run compendium clip https://example.com/article https://blog.example.com/post
+uv run compendium apple-books --book "Deep Work"
 uv run compendium ask "Turn this into a summary page" --output html --file
 uv run compendium lint --deep
 uv run compendium download-media --dry-run

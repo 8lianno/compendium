@@ -235,8 +235,10 @@ Use Graph View to visualize connections.
 ### Adding Sources
 1. Drop files into `raw/` (PDF, markdown, CSV, images)
 2. Run `compendium ingest <file>` to preprocess
-3. Run `compendium update --all-new` to integrate into the wiki
-4. Or run `compendium watch` to auto-ingest new files as they appear
+3. Run `compendium clip <url>` to clip web articles with images
+4. Run `compendium apple-books` to export Apple Books highlights
+5. Run `compendium update --all-new` to integrate into the wiki
+6. Or run `compendium watch` to auto-ingest new files as they appear
 
 ### Querying
 - `compendium ask "question"` — answers grounded in wiki with citations

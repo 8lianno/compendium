@@ -8,20 +8,22 @@ LLM-native knowledge compiler. Raw research sources -> compiled markdown wiki ->
 uv run compendium --help            # CLI reference
 uv run compendium init [path]       # Create new project (open in Obsidian)
 uv run compendium status --dir .    # Show project status
+uv run compendium clip <url>        # Clip web pages with images into raw/
+uv run compendium apple-books       # Export Apple Books highlights into raw/
 uv run compendium watch             # Auto-ingest new files in raw/
 uv run compendium download-media    # Download remote images for offline access
-uv run pytest tests/ -v             # Run tests (156 tests)
+uv run pytest tests/ -v             # Run tests (175 tests)
 uv run ruff check src/ tests/       # Lint
 ```
 
 ## Architecture
 - **Python 3.12+**, managed with `uv`
-- **CLI**: Typer (src/compendium/cli.py) - 14 commands
+- **CLI**: Typer (src/compendium/cli.py) - 16 commands
 - **Core**: src/compendium/core/ - config, frontmatter, WikiFileSystem, wikilinks
 - **LLM**: src/compendium/llm/ - provider protocol, Anthropic/OpenAI/Ollama, router, token tracker
 - **Pipeline**: src/compendium/pipeline/ - 6-step compilation, dependency graph, checkpoint/resume
 - **Q&A**: src/compendium/qa/ - engine, sessions, output (reports/slides/charts), feedback filing
-- **Ingestion**: src/compendium/ingest/ - file drop, PDF/OCR, web clip, dedup, watcher, media download
+- **Ingestion**: src/compendium/ingest/ - file drop, PDF/OCR, web clip, Apple Books, dedup, watcher, media download
 - **Lint**: src/compendium/lint/ - broken links, orphans, staleness, coverage gaps
 - **Prompts**: prompts/*.md - version-controlled templates with {{variable}} interpolation
 
@@ -44,4 +46,6 @@ uv run ruff check src/ tests/       # Lint
 - `tests/test_lint.py` - broken links, orphans, staleness, coverage gaps, structure
 - `tests/test_watch.py` - file watcher, debounce, filtering, auto-ingest
 - `tests/test_media.py` - remote image scanning, download, URL localization
+- `tests/test_clip.py` - web page clipping, duplicate handling, image download
+- `tests/test_apple_books.py` - Apple Books extraction, export, roundtrip
 - `tests/test_gaps.py` - index verification, template operations

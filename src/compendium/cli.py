@@ -574,6 +574,163 @@ def ingest(
         console.print(response.content)
 
 
+# -- clip --
+
+
+@app.command()
+def clip(
+    urls: Annotated[list[str], typer.Argument(help="URLs to clip")],
+    duplicate_mode: Annotated[
+        str, typer.Option(help="Duplicate handling: cancel | overwrite")
+    ] = "cancel",
+    project_dir: Annotated[
+        Path | None, typer.Option("--dir", "-d", help="Project directory")
+    ] = None,
+) -> None:
+    """Clip web pages into raw/ with metadata and local images."""
+    import asyncio
+
+    import httpx
+
+    from compendium.ingest.web_clip import clip_webpage
+    from compendium.pipeline.steps import build_log_entry
+
+    wfs = _get_wiki_fs(project_dir)
+    clipped = 0
+    failed = 0
+
+    async def _clip_all() -> None:
+        nonlocal clipped, failed
+        async with httpx.AsyncClient(follow_redirects=True, timeout=30.0) as client:
+            for url in urls:
+                console.print(f"  [dim]Fetching {url}...[/dim]")
+                try:
+                    resp = await client.get(url)
+                    resp.raise_for_status()
+                    html = resp.text
+                except httpx.HTTPError as e:
+                    console.print(f"  [red]FAIL[/red]  {url}: {e}")
+                    failed += 1
+                    continue
+
+                output, msg = await clip_webpage(
+                    url, html, wfs.raw_dir, wfs.raw_images_dir, duplicate_mode
+                )
+                if output:
+                    console.print(f"  [green]OK[/green]  {msg}")
+                    clipped += 1
+                else:
+                    console.print(f"  [yellow]SKIP[/yellow]  {msg}")
+
+    asyncio.run(_clip_all())
+
+    console.print(f"\n[bold]{clipped}[/bold] clipped, [bold]{failed}[/bold] failed")
+
+    if clipped > 0:
+        wfs.append_log_entry(
+            build_log_entry(
+                "ingest",
+                title="CLI clip",
+                sources_count=clipped,
+                notes=f"failed: {failed}; urls: {len(urls)}",
+            )
+        )
+        wfs.auto_commit(
+            f"[clip]: {clipped} web page(s)",
+            paths=[wfs.raw_dir, wfs.wiki_dir / "log.md"],
+        )
+
+
+# -- apple-books --
+
+
+@app.command("apple-books")
+def apple_books(
+    project_dir: Annotated[
+        Path | None, typer.Option("--dir", "-d", help="Project directory")
+    ] = None,
+    book: Annotated[
+        str | None, typer.Option(help="Export only this book (by title substring)")
+    ] = None,
+    list_books: Annotated[
+        bool, typer.Option("--list", help="List available books and exit")
+    ] = False,
+    duplicate_mode: Annotated[
+        str, typer.Option(help="Duplicate handling: cancel | overwrite")
+    ] = "cancel",
+) -> None:
+    """Export Apple Books highlights and annotations into raw/."""
+    from compendium.ingest.apple_books import (
+        discover_books,
+        export_to_markdown,
+        extract_highlights,
+    )
+
+    if list_books:
+        books = discover_books()
+        if not books:
+            console.print("[yellow]No Apple Books library found.[/yellow]")
+            raise typer.Exit(1)
+        table = Table(title="Apple Books Library")
+        table.add_column("Title", style="cyan")
+        table.add_column("Author")
+        table.add_column("Genre", style="dim")
+        for b in books:
+            table.add_row(b["title"], b["author"], b["genre"])
+        console.print(table)
+        return
+
+    wfs = _get_wiki_fs(project_dir)
+
+    # Extract highlights
+    exports = extract_highlights()
+    if not exports:
+        console.print(
+            "[yellow]No highlights found. "
+            "Ensure Apple Books has highlights and Full Disk Access is granted.[/yellow]"
+        )
+        raise typer.Exit(1)
+
+    # Filter by book title if specified
+    if book:
+        needle = book.lower()
+        exports = [e for e in exports if needle in e.title.lower()]
+        if not exports:
+            console.print(f"[yellow]No books matching '{book}'.[/yellow]")
+            raise typer.Exit(1)
+
+    exported = 0
+    skipped = 0
+    for bk in exports:
+        output, msg = export_to_markdown(bk, wfs.raw_dir, duplicate_mode)
+        if output:
+            console.print(f"  [green]+[/green] {msg}")
+            exported += 1
+        else:
+            console.print(f"  [dim]-[/dim] {msg}")
+            skipped += 1
+
+    console.print(
+        f"\n[bold]{exported}[/bold] exported, [bold]{skipped}[/bold] skipped"
+    )
+
+    if exported > 0:
+        from compendium.pipeline.steps import build_log_entry
+
+        wfs.append_log_entry(
+            build_log_entry(
+                "ingest",
+                title="Apple Books export",
+                sources_count=exported,
+                notes=f"skipped: {skipped}",
+            )
+        )
+        wfs.auto_commit(
+            f"[apple-books]: export {exported} book(s)",
+            paths=[wfs.raw_dir, wfs.wiki_dir / "log.md"],
+        )
+
+
 # -- watch --
 
 
