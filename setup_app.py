@@ -40,7 +40,7 @@ OPTIONS = {
         "CFBundleVersion": "0.1.0",
         "CFBundleShortVersionString": "0.1.0",
         # AC 2: No Dock icon — menu bar only
-        "LSUIElement": True,
+        "LSUIElement": False,
         "LSMinimumSystemVersion": "13.0",
         # AC 4: Declare the app supports background execution
         "NSSupportsAutomaticTermination": False,

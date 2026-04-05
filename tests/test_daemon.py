@@ -408,3 +408,55 @@ class TestApplyEngineChoice:
 
         loaded = CompendiumConfig.load(config_path)
         assert loaded.models.compilation.model == "claude-sonnet-4-20250514"
+
+
+# -- Ollama auto-discovery --
+
+
+class TestOllamaDiscovery:
+    def test_list_models_parses_response(self) -> None:
+        from unittest.mock import MagicMock
+
+        from compendium.llm.ollama import list_ollama_models
+
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.raise_for_status = MagicMock()
+        mock_resp.json.return_value = {
+            "models": [
+                {"name": "llama3:latest", "size": 1000},
+                {"name": "phi3:latest", "size": 2000},
+            ]
+        }
+
+        with patch("compendium.llm.ollama.httpx.get", return_value=mock_resp):
+            models = list_ollama_models()
+
+        assert models == ["llama3:latest", "phi3:latest"]
+
+    def test_list_models_returns_empty_on_error(self) -> None:
+        import httpx
+
+        from compendium.llm.ollama import list_ollama_models
+
+        with patch(
+            "compendium.llm.ollama.httpx.get",
+            side_effect=httpx.ConnectError("refused"),
+        ):
+            models = list_ollama_models()
+
+        assert models == []
+
+    def test_list_models_returns_empty_on_bad_json(self) -> None:
+        from unittest.mock import MagicMock
+
+        from compendium.llm.ollama import list_ollama_models
+
+        mock_resp = MagicMock()
+        mock_resp.raise_for_status = MagicMock()
+        mock_resp.json.return_value = {}  # no "models" key
+
+        with patch("compendium.llm.ollama.httpx.get", return_value=mock_resp):
+            models = list_ollama_models()
+
+        assert models == []

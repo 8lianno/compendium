@@ -242,14 +242,38 @@ def _engine_choice_setup(project_dir: Path) -> None:
                 "API key saved to macOS Keychain.",
             )
     else:  # Local / Ollama
-        resp = rumps.Window(
-            title="Ollama Model",
-            message="Which Ollama model?\n\n(Make sure Ollama is running)",
-            ok="Save",
-            cancel="Use default",
-            dimensions=(300, 24),
-            default_text="llama3",
-        ).run()
+        from compendium.llm.ollama import list_ollama_models
+
+        models = list_ollama_models()
+
+        if models:
+            model_list = "\n".join(f"  \u2022 {m}" for m in models)
+            resp = rumps.Window(
+                title="Ollama \u2014 Select Model",
+                message=f"Detected models:\n{model_list}\n\nType the model name:",
+                ok="Save",
+                cancel="Use default",
+                dimensions=(350, 24),
+                default_text=models[0],
+            ).run()
+        else:
+            rumps.alert(
+                title="Ollama Not Detected",
+                message=(
+                    "Could not connect to Ollama.\n\n"
+                    "Please ensure the Ollama app is running, "
+                    "then try again from Settings."
+                ),
+                ok="Continue",
+            )
+            resp = rumps.Window(
+                title="Ollama Model (Manual)",
+                message="Enter your Ollama model name:",
+                ok="Save",
+                cancel="Use default",
+                dimensions=(300, 24),
+                default_text="llama3",
+            ).run()
 
         model_name = resp.text.strip() if resp.clicked and resp.text.strip() else "llama3"
         apply_engine_choice(
@@ -338,12 +362,31 @@ def main() -> None:
         ],
     )
 
-    project_dir = _find_project_dir()
+    try:
+        _run_app()
+    except Exception as exc:
+        logger.exception("Startup error")
+        try:
+            import rumps
 
+            _bring_to_front()
+            rumps.alert(
+                title="Compendium \u2014 Startup Error",
+                message=f"Failed to load Compendium:\n\n{exc}",
+                ok="Quit",
+            )
+        except Exception:
+            pass
+
+
+def _run_app() -> None:
+    """Core app logic, separated so main() can catch and display errors."""
     from compendium.core.config import CompendiumConfig
     from compendium.core.wiki_fs import WikiFileSystem
     from compendium.daemon.engine import DaemonEngine
     from compendium.daemon.menubar import run_menubar
+
+    project_dir = _find_project_dir()
 
     # First-run setup if no project found
     is_first_run = project_dir is None

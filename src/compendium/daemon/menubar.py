@@ -90,8 +90,11 @@ class CompendiumMenuBar(rumps.App):
             self._quit_item,
         ]
 
-        # Populate books submenu on launch
-        self._refresh_books_submenu()
+        # Populate books submenu on launch (best-effort)
+        import contextlib
+
+        with contextlib.suppress(Exception):
+            self._refresh_books_submenu()
 
     # -- State change callback (called from engine thread) --
 
@@ -190,6 +193,43 @@ class CompendiumMenuBar(rumps.App):
                     "Stored securely in macOS Keychain.",
                 )
 
+        # Ollama model selection
+        from compendium.llm.ollama import list_ollama_models
+
+        models = list_ollama_models()
+        if models:
+            model_list = "\n".join(f"  \u2022 {m}" for m in models)
+            from compendium.core.config import CompendiumConfig
+
+            config = CompendiumConfig.load(self.wfs.root / "compendium.toml")
+            current = config.models.compilation.model
+
+            resp = rumps.Window(
+                title="Ollama \u2014 Local Models",
+                message=(
+                    f"Detected models:\n{model_list}\n\n"
+                    f"Current: {current}\n"
+                    "Type a model name to switch (or leave empty to skip):"
+                ),
+                ok="Save",
+                cancel="Skip",
+                dimensions=(350, 24),
+                default_text=current if config.models.compilation.provider == "ollama" else "",
+            ).run()
+
+            if resp.clicked and resp.text.strip():
+                from compendium.daemon.menubar_entry import apply_engine_choice
+
+                apply_engine_choice(
+                    self.wfs.root / "compendium.toml",
+                    "ollama",
+                    model=resp.text.strip(),
+                    endpoint="http://localhost:11434",
+                )
+                rumps.notification(
+                    "Compendium", "Ollama model updated", f"Now using: {resp.text.strip()}"
+                )
+
 
     # -- Apple Books selective sync --
 
@@ -212,7 +252,7 @@ class CompendiumMenuBar(rumps.App):
         # Clear existing book items (keep Refresh at the end)
         keys_to_remove = [
             k for k in self._books_menu
-            if k not in ("Refresh List",) and k != self._books_refresh
+            if k != "Refresh List"
         ]
         for k in keys_to_remove:
             del self._books_menu[k]
@@ -276,12 +316,13 @@ class CompendiumMenuBar(rumps.App):
         # Archive or restore in background
         source = find_source_for_book(self.wfs.raw_dir, book_title)
         if source and not new_enabled:
+            # Toggling OFF → archive
             rel = str(source.relative_to(self.wfs.root))
             threading.Thread(
                 target=self._run_archive, args=(rel, book_title), daemon=True
             ).start()
-        elif not source and new_enabled:
-            # Check if it's in the archive
+        elif new_enabled:
+            # Toggling ON → restore from archive or extract fresh
             from compendium.ingest.file_drop import slugify
 
             slug = slugify(f"{book_title}-highlights")
@@ -290,6 +331,13 @@ class CompendiumMenuBar(rumps.App):
                 rel = f"raw/{slug}.md"
                 threading.Thread(
                     target=self._run_restore, args=(rel, book_title), daemon=True
+                ).start()
+            elif not source:
+                # Brand new sync — extract highlights immediately
+                threading.Thread(
+                    target=self._run_extract_book,
+                    args=(asset_id, book_title),
+                    daemon=True,
                 ).start()
 
     def _run_archive(self, source_rel: str, title: str) -> None:
@@ -316,6 +364,30 @@ class CompendiumMenuBar(rumps.App):
                 f"{len(result.articles_restored)} article(s) restored",
             )
             self.engine._add_log(f"Restored: {title}")
+            # Trigger compilation to re-weave backlinks
+            if self.engine.auto_compile:
+                self.engine._run_incremental_update()
+
+    def _run_extract_book(self, asset_id: str, title: str) -> None:
+        """Extract a single book's highlights and optionally compile."""
+        from compendium.ingest.apple_books import export_to_markdown, extract_highlights
+
+        exports = extract_highlights(asset_id=asset_id)
+        if not exports:
+            rumps.notification("Compendium", title, "No highlights found for this book.")
+            return
+
+        for book in exports:
+            output, msg = export_to_markdown(book, self.wfs.raw_dir, duplicate_mode="overwrite")
+            if output:
+                self.engine._add_log(f"Synced: {msg}")
+                self.engine.stats.books_synced += 1
+
+        rumps.notification("Compendium", f"Synced: {title}", "Highlights extracted to raw/")
+
+        # Trigger compilation
+        if self.engine.auto_compile:
+            self.engine._run_incremental_update()
 
 
 def _parse_recent_log_entries(wfs: WikiFileSystem, *, limit: int = 5) -> list[str]:

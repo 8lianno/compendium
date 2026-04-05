@@ -22,6 +22,21 @@ DEFAULT_ENDPOINT = "http://localhost:11434"
 DEFAULT_MODEL = "llama3.2"
 
 
+def list_ollama_models(endpoint: str = DEFAULT_ENDPOINT) -> list[str]:
+    """Query local Ollama API for installed models.
+
+    Returns a list of model name strings (e.g. ["llama3:latest", "phi3:latest"]).
+    Returns empty list on any error (Ollama not running, timeout, etc).
+    """
+    try:
+        resp = httpx.get(f"{endpoint.rstrip('/')}/api/tags", timeout=5.0)
+        resp.raise_for_status()
+        data = resp.json()
+        return [m["name"] for m in data.get("models", [])]
+    except Exception:
+        return []
+
+
 class OllamaProvider:
     """Ollama provider using the OpenAI-compatible API."""
 

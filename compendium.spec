@@ -110,7 +110,7 @@ app = BUNDLE(
         "CFBundleDisplayName": "Compendium",
         "CFBundleVersion": "0.1.0",
         "CFBundleShortVersionString": "0.1.0",
-        "LSUIElement": True,  # AC 2: Menu bar only, no Dock icon
+        "LSUIElement": False,  # Visible in Dock + menu bar
         "LSMinimumSystemVersion": "13.0",
         "NSSupportsAutomaticTermination": False,
         "NSSupportsSuddenTermination": False,
