@@ -271,7 +271,7 @@ class CompendiumMenuBar(rumps.App):
                 config[aid] = {
                     "title": book["title"],
                     "author": book["author"],
-                    "enabled": True,
+                    "enabled": False,
                 }
                 updated = True
 

@@ -384,7 +384,7 @@ def get_enabled_asset_ids(project_dir: Path) -> set[str] | None:
     config = load_books_config(project_dir)
     if not config:
         return None
-    return {aid for aid, info in config.items() if info.get("enabled", True)}
+    return {aid for aid, info in config.items() if info.get("enabled", False)}
 
 
 def find_source_for_book(raw_dir: Path, book_title: str) -> Path | None:
