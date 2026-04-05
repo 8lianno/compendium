@@ -91,10 +91,10 @@ class CompendiumMenuBar(rumps.App):
         ]
 
         # Populate books submenu on launch (best-effort)
-        import contextlib
-
-        with contextlib.suppress(Exception):
+        try:
             self._refresh_books_submenu()
+        except Exception:
+            logger.exception("Failed to populate Apple Books submenu")
 
     # -- State change callback (called from engine thread) --
 
@@ -260,7 +260,7 @@ class CompendiumMenuBar(rumps.App):
         if not books:
             empty = rumps.MenuItem("No annotated books found", callback=None)
             empty.set_callback(None)
-            self._books_menu.insert_before(self._books_refresh, empty)
+            self._books_menu.insert_before("Refresh List", empty)
             return
 
         # Ensure all discovered books have a config entry
@@ -279,7 +279,7 @@ class CompendiumMenuBar(rumps.App):
             save_books_config(self.wfs.root, config)
 
         # Add separator before Refresh
-        self._books_menu.insert_before(self._books_refresh, None)
+        self._books_menu.insert_before("Refresh List", None)
 
         # Add a menu item per book with checkmark state
         for book in books:
@@ -291,7 +291,7 @@ class CompendiumMenuBar(rumps.App):
             # Store asset_id on the item for the callback
             item._compendium_asset_id = aid  # type: ignore[attr-defined]
             item._compendium_title = book["title"]  # type: ignore[attr-defined]
-            self._books_menu.insert_before(self._books_refresh, item)
+            self._books_menu.insert_before("Refresh List", item)
 
     def _toggle_book(self, sender: rumps.MenuItem) -> None:
         """Toggle a book's sync state and archive/restore accordingly."""
