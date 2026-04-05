@@ -118,10 +118,21 @@ def _ask_for_folder() -> Path | None:
     return None
 
 
+def _bring_to_front() -> None:
+    """Bring the app to the foreground so dialogs are visible."""
+    try:
+        from AppKit import NSApplication
+
+        NSApplication.sharedApplication().activateIgnoringOtherApps_(True)
+    except ImportError:
+        pass
+
+
 def _first_run_setup() -> Path | None:
     """Run first-time setup: ask user to pick a vault folder."""
     import rumps
 
+    _bring_to_front()
     rumps.alert(
         title="Welcome to Compendium",
         message=(
@@ -177,6 +188,8 @@ def apply_engine_choice(
 def _engine_choice_setup(project_dir: Path) -> None:
     """Ask user to choose LLM engine during first-run setup."""
     import rumps
+
+    _bring_to_front()
 
     # Step 1: Cloud vs Local
     choice = rumps.alert(
