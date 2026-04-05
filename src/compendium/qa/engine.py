@@ -24,7 +24,7 @@ def _score_relevance(query: str, title: str, summary: str) -> float:
 
 
 def _parse_index(index_path: Path) -> list[dict[str, str]]:
-    """Parse INDEX.md into a list of article entries."""
+    """Parse index.md into a list of article entries."""
     if not index_path.exists():
         return []
 
@@ -64,6 +64,17 @@ def _parse_index(index_path: Path) -> list[dict[str, str]]:
     return entries
 
 
+def _resolve_index_path(wiki_dir: Path) -> Path:
+    """Prefer the canonical lowercase index, fallback to legacy uppercase."""
+    lower = wiki_dir / "index.md"
+    if lower.exists():
+        return lower
+    upper = wiki_dir / "INDEX.md"
+    if upper.exists():
+        return upper
+    return lower
+
+
 def _find_article_file(slug: str, wiki_dir: Path) -> Path | None:
     """Find an article file by slug, searching all subdirectories."""
     # Try direct match
@@ -98,7 +109,7 @@ async def ask_question(
     """
     from compendium.llm.provider import CompletionRequest, Message
 
-    index_path = wiki_dir / "INDEX.md"
+    index_path = _resolve_index_path(wiki_dir)
     index_entries = _parse_index(index_path)
 
     if not index_entries:

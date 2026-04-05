@@ -1,5 +1,8 @@
 You are a wiki editor. An existing wiki article needs to be updated with new information from a new source.
 
+## Schema and Workflow Guidance
+{{schema_context}}
+
 ## Existing Article
 {{existing_article}}
 

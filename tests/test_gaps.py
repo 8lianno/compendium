@@ -40,15 +40,15 @@ def wiki_project(tmp_path: Path) -> WikiFileSystem:
     )
     (concepts_dir / "attention.md").write_text(frontmatter.dumps(post2))
 
-    # Create INDEX.md referencing both
-    (wfs.wiki_dir / "INDEX.md").write_text(
+    # Create index.md referencing both
+    (wfs.wiki_dir / "index.md").write_text(
         "# Index\n\n| Article | Category | Summary |\n"
         "|---------|----------|--------|\n"
         "| [[transformers|Transformers]] | concepts | Transformer arch |\n"
         "| [[attention|Attention Mechanisms]] | methods | Attention |\n"
     )
 
-    (wfs.wiki_dir / "CONCEPTS.md").write_text(
+    (wfs.wiki_dir / "concepts.md").write_text(
         "# Concepts\n\n## Concepts\n- **Transformers** — 3 sources\n"
     )
 
@@ -69,7 +69,7 @@ class TestVerifyIndex:
     def test_missing_from_index(self, wiki_project: WikiFileSystem) -> None:
         from compendium.pipeline.index_ops import verify_wiki_index
 
-        # Add article not in INDEX.md
+        # Add article not in index.md
         (wiki_project.wiki_dir / "concepts" / "new-article.md").write_text(
             "---\ntitle: New\ncategory: concepts\n---\n\n# New\nContent."
         )
@@ -81,7 +81,7 @@ class TestVerifyIndex:
     def test_extra_in_index(self, wiki_project: WikiFileSystem) -> None:
         from compendium.pipeline.index_ops import verify_wiki_index
 
-        # Remove an article but keep INDEX.md entry
+        # Remove an article but keep index.md entry
         (wiki_project.wiki_dir / "concepts" / "attention.md").unlink()
 
         result = verify_wiki_index(wiki_project.wiki_dir)
@@ -93,16 +93,16 @@ class TestRebuildIndex:
     def test_rebuild_creates_index(self, wiki_project: WikiFileSystem) -> None:
         from compendium.pipeline.index_ops import rebuild_wiki_index
 
-        # Remove INDEX.md
-        (wiki_project.wiki_dir / "INDEX.md").unlink()
+        # Remove index.md
+        (wiki_project.wiki_dir / "index.md").unlink()
 
         result = rebuild_wiki_index(wiki_project.wiki_dir)
         assert result["articles"] == 2
-        assert (wiki_project.wiki_dir / "INDEX.md").exists()
-        assert (wiki_project.wiki_dir / "CONCEPTS.md").exists()
+        assert (wiki_project.wiki_dir / "index.md").exists()
+        assert (wiki_project.wiki_dir / "concepts.md").exists()
 
         # Verify content
-        index_content = (wiki_project.wiki_dir / "INDEX.md").read_text()
+        index_content = (wiki_project.wiki_dir / "index.md").read_text()
         assert "transformers" in index_content.lower()
         assert "attention" in index_content.lower()
 
@@ -118,8 +118,8 @@ class TestSchemaGeneration:
         assert "# Wiki Schema" in schema
         assert "frontmatter" in schema.lower()
         assert "wikilink" in schema.lower()
-        assert "INDEX.md" in schema
-        assert "CONCEPTS.md" in schema
+        assert "index.md" in schema
+        assert "concepts.md" in schema
 
 
 # -- GAP-05: Retry with backoff --
@@ -272,19 +272,6 @@ class TestUsageBreakdown:
         assert tracker.get_operation_breakdown() == []
 
 
-# -- GAP-16: Search auto-rebuild --
-
-
-class TestSearchAutoRebuild:
-    def test_compile_rebuilds_search(self, wiki_project: WikiFileSystem) -> None:
-        """Verify that search works immediately after articles exist."""
-        from compendium.search.engine import SearchEngine
-
-        engine = SearchEngine(wiki_project.wiki_dir)
-        engine.build_index()
-
-        results = engine.search("transformer")
-        assert len(results) >= 1
 
 
 # -- GAP-09: Incremental conflict detection --
@@ -333,6 +320,10 @@ class TestIncrementalConflicts:
         conflicts_path = wfs.wiki_dir / "CONFLICTS.md"
         assert conflicts_path.exists()
 
+        # Incremental path should also refresh derived wiki artifacts.
+        assert (wfs.wiki_dir / "overview.md").exists()
+        assert (wfs.wiki_dir / "sources" / "new.md").exists()
+
         # log.md should have both compile and incremental entries
         log_path = wfs.wiki_dir / "log.md"
         assert log_path.exists()
@@ -361,6 +352,7 @@ class TestAppendLog:
         _append_log(log_path, "## Second entry\n")
 
         content = log_path.read_text()
+        assert content.startswith("---\n")
         assert "# Wiki Log" in content  # Header created on first append
         assert "First entry" in content
         assert "Second entry" in content  # Both entries preserved

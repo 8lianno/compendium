@@ -64,6 +64,15 @@ class LintReport:
         """Render the report as HEALTH_REPORT.md content."""
         now = datetime.now(UTC).isoformat()
         lines = [
+            "---\n",
+            'title: "Wiki Health Report"\n',
+            'id: "health-report"\n',
+            'category: "meta"\n',
+            'type: "health-report"\n',
+            'origin: "lint"\n',
+            'status: "published"\n',
+            f'updated_at: "{now}"\n',
+            "---\n\n",
             "# Wiki Health Report\n\n",
             f"*Generated: {now}*\n",
             f"*Issues: {self.total} "
@@ -106,7 +115,7 @@ def lint_wiki(
     2. Orphan articles (no inbound backlinks)
     3. Stale articles (source updated but wiki not recompiled)
     4. Coverage gaps (concepts mentioned frequently but no dedicated article)
-    5. Structural issues (missing INDEX.md, etc.)
+    5. Structural issues (missing index.md, etc.)
     6. Contradictions (if llm provided — deep mode)
     """
     report = LintReport()
@@ -122,10 +131,14 @@ def lint_wiki(
         if md_file.name in (
             "INDEX.md",
             "CONCEPTS.md",
+            "index.md",
+            "concepts.md",
             "CONFLICTS.md",
             "CHANGELOG.md",
             "HEALTH_REPORT.md",
             "SCHEMA.md",
+            "overview.md",
+            "log.md",
         ):
             continue
         slug = md_file.stem
@@ -145,13 +158,19 @@ def lint_wiki(
     # -- Check 4: Coverage gaps --
     _check_coverage_gaps(articles, article_contents, wiki_dir, report)
 
-    # -- Check 5: Structural checks --
+    # -- Check 5: Missing cross-references --
+    _check_missing_crossrefs(articles, article_contents, report)
+
+    # -- Check 6: Structural checks --
     _check_structure(wiki_dir, report)
 
-    # -- Check 6: Suggest questions and sources --
+    # -- Check 7: Existing conflicts file --
+    _check_conflict_file(wiki_dir, report)
+
+    # -- Check 8: Suggest questions and sources --
     _suggest_investigations(articles, article_contents, wiki_dir, report)
 
-    # -- Check 7: Contradictions (deep mode) --
+    # -- Check 9: Contradictions (deep mode) --
     if llm is not None:
         import asyncio
 
@@ -264,7 +283,7 @@ def _check_coverage_gaps(
     all_text = " ".join(article_contents.values()).lower()
 
     # Extract potential concepts from CONCEPTS.md
-    concepts_path = wiki_dir / "CONCEPTS.md"
+    concepts_path = _resolve_meta_page(wiki_dir, "concepts.md", "CONCEPTS.md")
     if not concepts_path.exists():
         return
 
@@ -286,11 +305,59 @@ def _check_coverage_gaps(
             LintIssue(
                 severity="info",
                 category="coverage_gap",
-                location="CONCEPTS.md",
+                location=concepts_path.name,
                 description=f"'{concept}' mentioned {count} times but has no dedicated article",
                 suggestion=f"Create article: '{concept}' — referenced across multiple articles",
             )
         )
+
+
+def _check_missing_crossrefs(
+    articles: dict[str, Path],
+    article_contents: dict[str, str],
+    report: LintReport,
+) -> None:
+    """Find article mentions that are not wired with explicit wikilinks."""
+    article_titles: dict[str, str] = {}
+    linked_targets: dict[str, set[str]] = {}
+
+    for slug, path in articles.items():
+        try:
+            post = frontmatter.load(str(path))
+            article_titles[slug] = str(post.metadata.get("title", slug.replace("-", " ").title()))
+        except Exception:
+            article_titles[slug] = slug.replace("-", " ").title()
+
+    for slug, content in article_contents.items():
+        linked_targets[slug] = {
+            target.strip().split("/")[-1].replace(".md", "").strip()
+            for target, _display in WIKILINK_PATTERN.findall(content)
+            if not target.startswith("raw/")
+        }
+
+    for slug, content in article_contents.items():
+        lowered = content.lower()
+        issues_for_article = 0
+
+        for target_slug, title in article_titles.items():
+            if target_slug == slug or target_slug in linked_targets[slug]:
+                continue
+
+            title_lower = title.lower()
+            slug_phrase = target_slug.replace("-", " ")
+            if title_lower in lowered or slug_phrase in lowered:
+                report.add(
+                    LintIssue(
+                        severity="info",
+                        category="missing_crossref",
+                        location=slug,
+                        description=f"Mention of '{title}' is not linked",
+                        suggestion=f"Add [[{target_slug}|{title}]] to connect related pages",
+                    )
+                )
+                issues_for_article += 1
+                if issues_for_article >= 5:
+                    break
 
 
 def _suggest_investigations(
@@ -303,7 +370,7 @@ def _suggest_investigations(
     " ".join(article_contents.values()).lower()
 
     # Find concepts that are mentioned but underexplored (few words about them)
-    concepts_path = wiki_dir / "CONCEPTS.md"
+    concepts_path = _resolve_meta_page(wiki_dir, "concepts.md", "CONCEPTS.md")
     if concepts_path.exists():
         for line in concepts_path.read_text().split("\n"):
             match = re.search(r"\*\*([^*]+)\*\*", line)
@@ -350,18 +417,58 @@ def _suggest_investigations(
 
 def _check_structure(wiki_dir: Path, report: LintReport) -> None:
     """Check for missing structural files."""
-    required = ["INDEX.md", "CONCEPTS.md"]
-    for filename in required:
-        if not (wiki_dir / filename).exists():
+    required = [
+        ("index.md", "INDEX.md"),
+        ("concepts.md", "CONCEPTS.md"),
+    ]
+    for preferred, legacy in required:
+        if not _resolve_meta_page(wiki_dir, preferred, legacy).exists():
             report.add(
                 LintIssue(
                     severity="warning",
                     category="structure",
-                    location=filename,
-                    description=f"{filename} is missing",
+                    location=preferred,
+                    description=f"{preferred} is missing",
                     suggestion="Run `compendium rebuild-index` to regenerate",
                 )
             )
+
+
+def _check_conflict_file(wiki_dir: Path, report: LintReport) -> None:
+    """Surface existing entries from CONFLICTS.md during lint runs."""
+    conflicts_path = wiki_dir / "CONFLICTS.md"
+    if not conflicts_path.exists():
+        return
+
+    content = conflicts_path.read_text()
+    if "No conflicts detected" in content:
+        return
+
+    headings = re.findall(r"^###\s+(.+)$", content, re.MULTILINE)
+    if not headings:
+        return
+
+    for heading in headings:
+        report.add(
+            LintIssue(
+                severity="warning",
+                category="contradiction",
+                location="CONFLICTS.md",
+                description=f"Unresolved conflict recorded: {heading}",
+                suggestion="Review CONFLICTS.md and reconcile or annotate the competing claims",
+            )
+        )
+
+
+def _resolve_meta_page(wiki_dir: Path, preferred: str, legacy: str) -> Path:
+    """Resolve a canonical wiki meta page with legacy uppercase fallback."""
+    preferred_path = wiki_dir / preferred
+    if preferred_path.exists():
+        return preferred_path
+    legacy_path = wiki_dir / legacy
+    if legacy_path.exists():
+        return legacy_path
+    return preferred_path
 
 
 async def _check_contradictions(

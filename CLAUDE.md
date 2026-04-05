@@ -1,30 +1,27 @@
 # Compendium — Development Guide
 
 ## What is this?
-LLM-native knowledge compiler. Raw research sources -> compiled markdown wiki -> Q&A -> feedback loop. Local-first, BYOM (Bring Your Own Model).
+LLM-native knowledge compiler. Raw research sources -> compiled markdown wiki -> Q&A -> feedback loop. Local-first, file-first, BYOM (Bring Your Own Model). Designed as an Obsidian-native vault.
 
 ## Quick Commands
 ```bash
-uv run compendium --help          # CLI reference
-uv run compendium init [path]     # Create new project
-uv run compendium status --dir .  # Show project status
-uv run compendium serve           # Start web server on :17394
-uv run pytest tests/ -v           # Run tests (121 tests)
-uv run ruff check src/ tests/     # Lint
-cd frontend && pnpm build         # Build web UI
+uv run compendium --help            # CLI reference
+uv run compendium init [path]       # Create new project (open in Obsidian)
+uv run compendium status --dir .    # Show project status
+uv run compendium watch             # Auto-ingest new files in raw/
+uv run compendium download-media    # Download remote images for offline access
+uv run pytest tests/ -v             # Run tests (156 tests)
+uv run ruff check src/ tests/       # Lint
 ```
 
 ## Architecture
 - **Python 3.12+**, managed with `uv`
-- **CLI**: Typer (src/compendium/cli.py) - 12 commands
-- **Server**: FastAPI (src/compendium/server.py) - REST API + WebSocket + serves Svelte SPA
-- **Frontend**: Svelte 5 + Vite (frontend/) - builds to src/compendium/web/static/
-- **Extension**: Chrome/Firefox Manifest V3 (extension/) - web clipper
+- **CLI**: Typer (src/compendium/cli.py) - 14 commands
 - **Core**: src/compendium/core/ - config, frontmatter, WikiFileSystem, wikilinks
 - **LLM**: src/compendium/llm/ - provider protocol, Anthropic/OpenAI/Ollama, router, token tracker
 - **Pipeline**: src/compendium/pipeline/ - 6-step compilation, dependency graph, checkpoint/resume
 - **Q&A**: src/compendium/qa/ - engine, sessions, output (reports/slides/charts), feedback filing
-- **Search**: src/compendium/search/ - Whoosh BM25 full-text search
+- **Ingestion**: src/compendium/ingest/ - file drop, PDF/OCR, web clip, dedup, watcher, media download
 - **Lint**: src/compendium/lint/ - broken links, orphans, staleness, coverage gaps
 - **Prompts**: prompts/*.md - version-controlled templates with {{variable}} interpolation
 
@@ -35,15 +32,16 @@ cd frontend && pnpm build         # Build web UI
 - Type-only imports go in `if TYPE_CHECKING:` blocks
 - WikiFileSystem handles all file I/O with atomic staging -> promotion -> rollback
 - LLM providers implement the `LlmProvider` protocol (src/compendium/llm/provider.py)
+- Obsidian-native: valid YAML frontmatter (Dataview compatible), standard `[[wikilinks]]` (Graph View compatible)
+- Canonical retrieval entrypoint: `wiki/index.md` (legacy `wiki/INDEX.md` is read as fallback)
 
 ## Testing
-- `tests/test_core.py` - frontmatter, config, WikiFileSystem, wikilinks (20 tests)
-- `tests/test_llm.py` - providers, router, token tracker, prompt loader, factory (23 tests)
-- `tests/test_ingestion.py` - file drop, web clip, PDF, CSV, dedup, batch (22 tests)
-- `tests/test_pipeline.py` - dep graph, checkpoint, steps, full pipeline, incremental (19 tests)
-- `tests/test_qa.py` - Q&A engine, sessions, output, feedback filing (17 tests)
-- `tests/test_search.py` - BM25 index, search ranking, snippets, update/remove (12 tests)
-- `tests/test_lint.py` - broken links, orphans, staleness, coverage gaps, structure (13 tests)
-
-## All Phases Complete
-Phase 0 (Foundation) -> Phase 1 (BYOM) -> Phase 2 (Ingestion) -> Phase 3 (Compilation) -> Phase 4 (Q&A) -> Phase 5 (Search/Lint) -> Frontend + Extension + Beta
+- `tests/test_core.py` - frontmatter, config, WikiFileSystem, wikilinks
+- `tests/test_llm.py` - providers, router, token tracker, prompt loader, factory
+- `tests/test_ingestion.py` - file drop, web clip, PDF, CSV, dedup, batch
+- `tests/test_pipeline.py` - dep graph, checkpoint, steps, full pipeline, incremental
+- `tests/test_qa.py` - Q&A engine, sessions, output, feedback filing
+- `tests/test_lint.py` - broken links, orphans, staleness, coverage gaps, structure
+- `tests/test_watch.py` - file watcher, debounce, filtering, auto-ingest
+- `tests/test_media.py` - remote image scanning, download, URL localization
+- `tests/test_gaps.py` - index verification, template operations

@@ -44,15 +44,15 @@ def wiki_for_lint(tmp_path: Path) -> dict[str, Path]:
         "Reinforcement learning methods differ from supervised approaches.\n"
     )
 
-    # INDEX.md
-    (wiki_dir / "INDEX.md").write_text(
+    # index.md
+    (wiki_dir / "index.md").write_text(
         "# Index\n\n| Article | Category | Summary |\n"
         "|---------|----------|--------|\n"
         "| [[transformers|Transformers]] | concepts | Core arch |\n"
     )
 
-    # CONCEPTS.md with a concept that has no article
-    (wiki_dir / "CONCEPTS.md").write_text(
+    # concepts.md with a concept that has no article
+    (wiki_dir / "concepts.md").write_text(
         "# Concepts\n\n## Concepts\n"
         "- **Transformers** — 3 sources\n"
         "- **Attention Mechanisms** — 3 sources\n"
@@ -71,6 +71,7 @@ class TestLintReport:
         assert report.total == 0
         assert report.critical_count == 0
         md = report.to_markdown()
+        assert md.startswith("---\n")
         assert "healthy" in md.lower()
 
     def test_report_counts(self) -> None:
@@ -101,6 +102,7 @@ class TestLintReport:
         )
 
         md = report.to_markdown()
+        assert md.startswith("---\n")
         assert "Critical" in md
         assert "broken" in md.lower()
         assert "test.md" in md
@@ -143,20 +145,46 @@ class TestCoverageGaps:
         report = lint_wiki(wiki_for_lint["wiki"])
 
         gaps = [i for i in report.issues if i.category == "coverage_gap"]
-        # "Reinforcement Learning" is in CONCEPTS.md but has no article
+        # "Reinforcement Learning" is in concepts.md but has no article
         assert any("Reinforcement Learning" in i.description for i in gaps)
+
+
+class TestMissingCrossrefs:
+    def test_detects_unlinked_mentions(self, wiki_for_lint: dict[str, Path]) -> None:
+        orphan = wiki_for_lint["wiki"] / "concepts" / "orphan-concept.md"
+        orphan.write_text(
+            "---\ntitle: Orphan Concept\ncategory: concepts\n---\n\n"
+            "# Orphan Concept\n\nThis article mentions Transformers but forgets the wikilink.\n"
+        )
+
+        report = lint_wiki(wiki_for_lint["wiki"])
+
+        crossrefs = [i for i in report.issues if i.category == "missing_crossref"]
+        assert any("Transformers" in i.description for i in crossrefs)
+
+
+class TestConflictFile:
+    def test_surfaces_conflicts_md_entries(self, wiki_for_lint: dict[str, Path]) -> None:
+        (wiki_for_lint["wiki"] / "CONFLICTS.md").write_text(
+            "# Conflicts\n\n## Warning\n\n### Transformers vs Attention Mechanisms\n"
+            "- **Explanation:** Conflicting conclusions.\n"
+        )
+
+        report = lint_wiki(wiki_for_lint["wiki"])
+        contradictions = [i for i in report.issues if i.category == "contradiction"]
+        assert any("Transformers vs Attention Mechanisms" in i.description for i in contradictions)
 
 
 class TestStructure:
     def test_missing_index(self, tmp_path: Path) -> None:
         wiki_dir = tmp_path / "wiki"
         wiki_dir.mkdir()
-        # Create a single article but no INDEX.md
+        # Create a single article but no index.md
         (wiki_dir / "test.md").write_text("# Test\nContent.")
 
         report = lint_wiki(wiki_dir)
         structure = [i for i in report.issues if i.category == "structure"]
-        assert any("INDEX.md" in i.location for i in structure)
+        assert any("index.md" in i.location for i in structure)
 
 
 class TestStaleness:
@@ -193,5 +221,5 @@ class TestFullLint:
         wiki_dir.mkdir()
 
         report = lint_wiki(wiki_dir)
-        # Should find structural issues (missing INDEX.md, etc.)
+        # Should find structural issues (missing index.md, etc.)
         assert report.total >= 1

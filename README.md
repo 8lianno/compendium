@@ -37,18 +37,17 @@ better as you use it.
 
 Compendium currently includes:
 
-- file and web ingestion
-- duplicate handling for incoming sources
+- file and web ingestion with automatic deduplication
 - PDF extraction with OCR support
 - a compile/update pipeline that writes wiki pages
 - interactive and batch compile modes
 - question answering with citations
 - report, slides, HTML, and chart outputs
 - filing generated outputs back into the wiki
-- full-text search
-- a knowledge graph
-- wiki linting and health checks
-- a local web app for the main operations
+- wiki linting and health checks (broken links, orphans, conflicts, staleness)
+- file watcher for auto-ingestion from OS automation and cloud sync
+- remote image download for offline access
+- Obsidian-native: valid YAML frontmatter (Dataview), standard `[[wikilinks]]` (Graph View)
 
 ## How It Works
 
@@ -75,11 +74,9 @@ The important idea is that the wiki is the center of the system.
 This repository contains the Compendium application itself, not a sample knowledge project.
 
 ```text
-src/compendium/         Python backend, CLI, pipeline, and app server
-frontend/               Svelte web app that builds into the backend's static files
-extension/              Browser clipper extension
+src/compendium/         Python CLI, pipeline, ingestion, Q&A, and lint
 prompts/                Prompt files used by the compile and Q&A pipeline
-tests/                  Backend and integration tests
+tests/                  Tests
 README.md               This file
 pyproject.toml          Python package and dependency config
 ```
@@ -88,22 +85,17 @@ pyproject.toml          Python package and dependency config
 
 If you are new to the codebase, these are the most important areas:
 
-### Backend entry points
+### Entry point
 
 - `src/compendium/cli.py`
   - The command-line app.
-  - This is where commands like `init`, `ingest`, `compile`, `update`, `ask`, `lint`, and
-    `serve` are defined.
-
-- `src/compendium/server.py`
-  - The FastAPI server.
-  - It powers the local web app and exposes the API used by the frontend.
+  - Commands: `init`, `ingest`, `compile`, `update`, `ask`, `lint`, `watch`, `download-media`, and more.
 
 ### Core filesystem and config
 
 - `src/compendium/core/wiki_fs.py`
   - Handles project folders and wiki file operations.
-  - Also handles log writes, search refreshes, and auto-commit helpers.
+  - Also handles log writes and auto-commit helpers.
 
 - `src/compendium/core/config.py`
   - Defines the project config model loaded from `compendium.toml`.
@@ -127,7 +119,7 @@ If you are new to the codebase, these are the most important areas:
 
 - `src/compendium/pipeline/controller.py`
   - Runs the main compile/update flow.
-  - Regenerates wiki artifacts like `INDEX.md` and `CONCEPTS.md`.
+  - Regenerates wiki artifacts like `index.md` and `concepts.md`.
 
 - `src/compendium/pipeline/steps.py`
   - Contains the lower-level wiki generation and logging steps.
@@ -146,13 +138,18 @@ If you are new to the codebase, these are the most important areas:
 - `src/compendium/qa/filing.py`
   - Files generated outputs back into the wiki with merge/replace/keep-both rules.
 
-### Search and linting
-
-- `src/compendium/search/engine.py`
-  - Full-text search over the wiki.
+### Linting
 
 - `src/compendium/lint/engine.py`
   - Health checks for broken links, stale content, contradictions, and coverage gaps.
+
+### File watching and media
+
+- `src/compendium/ingest/watcher.py`
+  - Watches `raw/` for new files and auto-ingests them.
+
+- `src/compendium/ingest/media.py`
+  - Downloads remote images in wiki articles for offline access.
 
 ### LLM providers
 
@@ -168,23 +165,14 @@ If you are new to the codebase, these are the most important areas:
 - `src/compendium/llm/retry.py`
   - Shared retry/backoff logic for remote model calls.
 
-### Frontend
+## Viewing with Obsidian
 
-- `frontend/src/App.svelte`
-  - The main app shell.
+The project directory is a standard Obsidian vault. Open it in Obsidian to get:
 
-- `frontend/src/pages/Ingest.svelte`
-- `frontend/src/pages/Compile.svelte`
-- `frontend/src/pages/Outputs.svelte`
-- `frontend/src/pages/Search.svelte`
-- `frontend/src/pages/Graph.svelte`
-- `frontend/src/pages/Lint.svelte`
-- `frontend/src/pages/Settings.svelte`
-- `frontend/src/pages/Status.svelte`
-- `frontend/src/pages/Viewer.svelte`
-  - The main user-facing screens.
-
-The frontend talks to the FastAPI backend through `frontend/src/lib/api.ts`.
+- **Graph View** — visualize connections between wiki articles via `[[wikilinks]]`
+- **Dataview** — query frontmatter fields (category, sources, tags, status) as tables
+- **Built-in search** — Cmd+Shift+F for full-text search across wiki articles
+- **Web Clipper** — use the Obsidian Web Clipper extension to clip articles into `raw/`
 
 ## What a Compendium Project Looks Like
 
@@ -198,8 +186,8 @@ my-wiki/
     images/
     originals/
   wiki/
-    INDEX.md
-    CONCEPTS.md
+    index.md
+    concepts.md
     log.md
     ...
   output/
@@ -218,9 +206,6 @@ The important folders are:
 
 ```bash
 uv sync --group dev
-cd frontend
-pnpm install
-cd ..
 ```
 
 ### 2. Create a knowledge project
@@ -278,17 +263,19 @@ Generate slides and file them back into the wiki:
 uv run compendium ask "Summarize this for a team update" --output slides --file
 ```
 
-### 7. Start the local web app
+### 7. Open in Obsidian
+
+Open the project directory as an Obsidian vault. Install the Dataview plugin for
+queryable frontmatter tables.
+
+### 8. Watch for new files (optional)
 
 ```bash
-uv run compendium serve
+uv run compendium watch
 ```
 
-Then open:
-
-```text
-http://127.0.0.1:17394
-```
+This monitors `raw/` and auto-ingests new files — works with Obsidian Web Clipper,
+OS automation (Hazel, Shortcuts), cloud sync, and voice transcriptions.
 
 ## Main CLI Commands
 
@@ -298,11 +285,11 @@ uv run compendium ingest
 uv run compendium compile
 uv run compendium update
 uv run compendium ask
-uv run compendium search
 uv run compendium lint
+uv run compendium watch
+uv run compendium download-media
 uv run compendium status
 uv run compendium usage
-uv run compendium serve
 uv run compendium config set-key
 uv run compendium config test
 ```
@@ -312,50 +299,21 @@ Useful examples:
 ```bash
 uv run compendium update --all-new
 uv run compendium ask "Turn this into a summary page" --output html --file
-uv run compendium search "retrieval augmented generation"
 uv run compendium lint --deep
+uv run compendium download-media --dry-run
 ```
 
 ## Running the Codebase Locally as a Developer
-
-### Backend
 
 ```bash
 uv sync --group dev
 ```
 
-### Frontend
-
-```bash
-cd frontend
-pnpm install
-pnpm build
-cd ..
-```
-
-The frontend build output is written into:
-
-```text
-src/compendium/web/static/
-```
-
-That is what the backend serves when you run `compendium serve`.
-
 ## Tests and Checks
-
-Backend:
 
 ```bash
 uv run pytest tests -q
 uv run ruff check src tests
-```
-
-Frontend:
-
-```bash
-cd frontend
-pnpm test
-pnpm build
 ```
 
 ## Design Principles
@@ -370,16 +328,15 @@ Compendium is built around a few simple rules:
 
 ## Current Status
 
-This codebase already includes:
+This codebase includes:
 
-- CLI workflow
-- FastAPI backend
-- Svelte operations UI
-- browser clipper files
-- ingestion, compile/update, Q&A, filing, search, graph, and lint flows
+- CLI-driven workflow (no server required)
+- ingestion, compile/update, Q&A, filing, and lint flows
+- file watcher for auto-ingestion
+- Obsidian-native vault with Dataview and Graph View compatibility
 
-It is best thought of as an application for building and maintaining a personal or team knowledge
-wiki with LLM assistance.
+It is best thought of as a tool for building and maintaining a personal or team knowledge
+wiki with LLM assistance, using Obsidian as the viewing layer.
 
 ## License
 

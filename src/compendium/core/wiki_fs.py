@@ -28,8 +28,8 @@ class WikiFileSystem:
                 images/             # Downloaded images
                 originals/          # Preserved original files (PDFs, etc.)
             wiki/                   # Compiled wiki articles
-                INDEX.md
-                CONCEPTS.md
+                index.md
+                concepts.md
                 CONFLICTS.md
                 CHANGELOG.md
                 .deps.json          # Dependency graph
@@ -156,9 +156,7 @@ class WikiFileSystem:
                 f'domain = "{safe_domain}"\n\n'
                 "[lint]\n"
                 'schedule = "manual"\n'
-                "missing_data_web_search = false\n\n"
-                "[server]\n"
-                "port = 17394\n"
+                "missing_data_web_search = false\n"
             )
 
         schema_path = self.wiki_dir / "SCHEMA.md"
@@ -194,7 +192,7 @@ class WikiFileSystem:
                     gitignore.write_text(
                         "# Compendium internals\n"
                         "wiki/.staging/\nwiki/.backup/\n"
-                        "wiki/.compilation-log/\nwiki/.search-index/\n"
+                        "wiki/.compilation-log/\n"
                         "raw/.clip-log.json\n"
                         ".compendium-keys.json\n"
                         ".sessions/\n"
@@ -222,26 +220,34 @@ output/     Q&A reports, slides, charts
 - **Wikilinks:** Use `[[article-slug]]` or `[[slug|Display Text]]` to link articles
 - **Frontmatter:** Every wiki article has YAML frontmatter with title, category, sources, tags
 - **Sources:** Every claim must reference its raw source: `[[raw/source-name.md]]`
-- **INDEX.md:** Master index table — updated after every compilation
-- **CONCEPTS.md:** Hierarchical concept taxonomy
+- **index.md:** Master index table — updated after every compilation
+- **concepts.md:** Hierarchical concept taxonomy
 - **CONFLICTS.md:** Detected contradictions between sources
 - **log.md:** Append-only chronological record of all operations
 
 ## How to Maintain This Wiki
 
+### Viewing
+Open this project folder in **Obsidian** as a vault.
+Install the Dataview plugin for queryable frontmatter tables.
+Use Graph View to visualize connections.
+
 ### Adding Sources
 1. Drop files into `raw/` (PDF, markdown, CSV, images)
 2. Run `compendium ingest <file>` to preprocess
 3. Run `compendium update --all-new` to integrate into the wiki
+4. Or run `compendium watch` to auto-ingest new files as they appear
 
 ### Querying
 - `compendium ask "question"` — answers grounded in wiki with citations
 - `compendium ask "question" --output report --file` — save and file back to wiki
+- Or point an external agent (Claude Code, Cursor) at `wiki/index.md` for retrieval
 
 ### Maintenance
 - `compendium lint` — check for broken links, orphans, gaps
-- `compendium verify-index` — ensure INDEX.md is in sync
+- `compendium verify-index` — ensure index.md is in sync
 - `compendium rebuild-index` — regenerate index from scratch
+- `compendium download-media` — download remote images for offline access
 
 ## Schema (co-evolve this section as the wiki grows)
 
@@ -287,24 +293,46 @@ Customize this section to document domain-specific conventions:
         entries.append(entry)
         self.clip_log_path.write_text(json.dumps(entries, indent=2))
 
-    def refresh_search_index(self) -> bool:
-        """Best-effort search index rebuild after wiki changes."""
-        try:
-            from compendium.search.engine import SearchEngine
-
-            engine = SearchEngine(self.wiki_dir)
-            engine.build_index()
-            return True
-        except Exception:
-            return False
-
     def append_log_entry(self, entry: str) -> None:
         """Append an entry to wiki/log.md, creating the file header if needed."""
         log_path = self.wiki_dir / "log.md"
+        header = (
+            "---\n"
+            'title: "Wiki Log"\n'
+            'id: "log"\n'
+            'category: "meta"\n'
+            'type: "log"\n'
+            'origin: "system"\n'
+            'status: "published"\n'
+            "---\n\n"
+            "# Wiki Log\n\n"
+            "Chronological record of all wiki operations.\n\n"
+        )
         if not log_path.exists():
-            log_path.write_text("# Wiki Log\n\nChronological record of all wiki operations.\n\n")
+            log_path.write_text(header)
+        elif not log_path.read_text().startswith("---"):
+            log_path.write_text(header + log_path.read_text())
         with open(log_path, "a", encoding="utf-8") as handle:
             handle.write(entry)
+
+    def schema_context(self, max_chars: int = 12_000) -> str:
+        """Return the active schema and repository instructions for LLM prompts."""
+        sections: list[str] = []
+
+        claude_path = self.root / "CLAUDE.md"
+        if claude_path.exists():
+            sections.append("## Project Instructions\n" + claude_path.read_text())
+
+        schema_path = self.wiki_dir / "SCHEMA.md"
+        if schema_path.exists():
+            sections.append("## Wiki Schema\n" + schema_path.read_text())
+
+        context = "\n\n".join(section.strip() for section in sections if section.strip())
+        if not context:
+            return "No explicit schema guidance available."
+        if len(context) <= max_chars:
+            return context
+        return context[:max_chars].rstrip() + "\n\n[Schema context truncated]"
 
     def git_available(self) -> bool:
         return shutil.which("git") is not None and (self.root / ".git").exists()

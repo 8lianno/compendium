@@ -1,5 +1,8 @@
 You are a wiki article author. Generate a comprehensive article about "{{concept_name}}" by synthesizing information from the provided sources.
 
+## Schema and Workflow Guidance
+{{schema_context}}
+
 ## Concept
 Name: {{concept_name}}
 Category: {{category}}

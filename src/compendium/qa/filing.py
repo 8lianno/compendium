@@ -80,7 +80,16 @@ def _insert_backlinks(filed_path: Path, wiki_dir: Path) -> int:
             continue
         if any(p.startswith(".") for p in md_file.relative_to(wiki_dir).parts):
             continue
-        if md_file.name in ("INDEX.md", "CONCEPTS.md", "CONFLICTS.md", "CHANGELOG.md"):
+        if md_file.name in (
+            "INDEX.md",
+            "CONCEPTS.md",
+            "index.md",
+            "concepts.md",
+            "CONFLICTS.md",
+            "CHANGELOG.md",
+            "HEALTH_REPORT.md",
+            "log.md",
+        ):
             continue
 
         content = md_file.read_text()
@@ -145,7 +154,9 @@ def file_to_wiki(
         return {"status": "cancelled", "message": "Filing cancelled"}
 
     # Detect category
-    concepts_path = wfs.wiki_dir / "CONCEPTS.md"
+    concepts_path = wfs.wiki_dir / "concepts.md"
+    if not concepts_path.exists():
+        concepts_path = wfs.wiki_dir / "CONCEPTS.md"
     category = _detect_category(content, concepts_path)
 
     # Update frontmatter for wiki
@@ -195,8 +206,6 @@ def file_to_wiki(
     from compendium.pipeline.index_ops import rebuild_wiki_index
 
     rebuild_wiki_index(wfs.wiki_dir)
-    wfs.refresh_search_index()
-
     # Append to log.md
     from compendium.pipeline.steps import build_log_entry
 
@@ -208,7 +217,7 @@ def file_to_wiki(
     wfs.append_log_entry(log_entry)
     wfs.auto_commit(
         f"[file]: {title[:72]}",
-        paths=[filed_path, wfs.wiki_dir / "INDEX.md", wfs.wiki_dir / "log.md"],
+        paths=[filed_path, wfs.wiki_dir / "index.md", wfs.wiki_dir / "log.md"],
     )
 
     return {

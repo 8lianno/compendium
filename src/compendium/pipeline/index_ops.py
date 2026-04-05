@@ -1,4 +1,4 @@
-"""Index operations — verify and rebuild INDEX.md / CONCEPTS.md."""
+"""Index operations — verify and rebuild `index.md` / `concepts.md`."""
 
 from __future__ import annotations
 
@@ -22,6 +22,8 @@ def _scan_wiki_articles(wiki_dir: Path) -> list[dict[str, str]]:
         if md_file.name in (
             "INDEX.md",
             "CONCEPTS.md",
+            "index.md",
+            "concepts.md",
             "CONFLICTS.md",
             "CHANGELOG.md",
             "HEALTH_REPORT.md",
@@ -61,9 +63,20 @@ def _scan_wiki_articles(wiki_dir: Path) -> list[dict[str, str]]:
     return sorted(articles, key=lambda a: a["slug"])
 
 
+def _resolve_meta_page(wiki_dir: Path, preferred: str, legacy: str) -> Path:
+    """Resolve a canonical wiki meta page with legacy uppercase fallback."""
+    preferred_path = wiki_dir / preferred
+    if preferred_path.exists():
+        return preferred_path
+    legacy_path = wiki_dir / legacy
+    if legacy_path.exists():
+        return legacy_path
+    return preferred_path
+
+
 def _parse_index_slugs(wiki_dir: Path) -> set[str]:
-    """Parse INDEX.md and return the set of article slugs it references."""
-    index_path = wiki_dir / "INDEX.md"
+    """Parse index.md and return the set of article slugs it references."""
+    index_path = _resolve_meta_page(wiki_dir, "index.md", "INDEX.md")
     if not index_path.exists():
         return set()
 
@@ -76,7 +89,7 @@ def _parse_index_slugs(wiki_dir: Path) -> set[str]:
 
 
 def verify_wiki_index(wiki_dir: Path) -> dict:
-    """Check INDEX.md consistency against actual wiki articles.
+    """Check `index.md` consistency against actual wiki articles.
 
     Returns dict with: consistent (bool), mismatches (list of issues).
     """
@@ -86,30 +99,30 @@ def verify_wiki_index(wiki_dir: Path) -> dict:
 
     mismatches: list[dict[str, str]] = []
 
-    # Articles in wiki/ but not in INDEX.md
+    # Articles in wiki/ but not in index.md
     for slug in sorted(article_slugs - index_slugs):
         mismatches.append(
             {
                 "type": "MISSING_FROM_INDEX",
-                "detail": f"Article '{slug}' exists in wiki/ but not in INDEX.md",
+                "detail": f"Article '{slug}' exists in wiki/ but not in index.md",
             }
         )
 
-    # Entries in INDEX.md but no corresponding article
+    # Entries in index.md but no corresponding article
     for slug in sorted(index_slugs - article_slugs):
         mismatches.append(
             {
                 "type": "EXTRA_IN_INDEX",
-                "detail": f"INDEX.md references '{slug}' but no article file found",
+                "detail": f"index.md references '{slug}' but no article file found",
             }
         )
 
-    # Check CONCEPTS.md existence
-    if not (wiki_dir / "CONCEPTS.md").exists() and articles:
+    # Check concepts.md existence
+    if not _resolve_meta_page(wiki_dir, "concepts.md", "CONCEPTS.md").exists() and articles:
         mismatches.append(
             {
                 "type": "MISSING_FILE",
-                "detail": "CONCEPTS.md is missing",
+                "detail": "concepts.md is missing",
             }
         )
 
@@ -122,7 +135,7 @@ def verify_wiki_index(wiki_dir: Path) -> dict:
 
 
 def rebuild_wiki_index(wiki_dir: Path) -> dict:
-    """Rebuild INDEX.md and CONCEPTS.md from wiki/ article scan.
+    """Rebuild `index.md` and `concepts.md` from wiki/ article scan.
 
     Returns dict with: articles (count), concepts (count).
     """
@@ -170,6 +183,18 @@ def rebuild_wiki_index(wiki_dir: Path) -> dict:
 
     for filename, content in index_files.items():
         (wiki_dir / filename).write_text(content)
+
+    # Drop legacy uppercase files when the filesystem treats them as distinct paths.
+    for legacy, canonical in (("INDEX.md", "index.md"), ("CONCEPTS.md", "concepts.md")):
+        legacy_path = wiki_dir / legacy
+        canonical_path = wiki_dir / canonical
+        if legacy_path.exists() and canonical_path.exists():
+            try:
+                same_file = legacy_path.samefile(canonical_path)
+            except OSError:
+                same_file = False
+            if not same_file:
+                legacy_path.unlink()
 
     return {
         "articles": len(articles),

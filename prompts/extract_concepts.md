@@ -1,5 +1,8 @@
 You are a taxonomy construction engine. Given these source summaries, build a hierarchical concept taxonomy.
 
+## Schema and Workflow Guidance
+{{schema_context}}
+
 ## Source Summaries
 {{summaries}}
 

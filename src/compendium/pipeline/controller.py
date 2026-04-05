@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
@@ -133,6 +134,7 @@ async def compile_wiki(
 
     source_data: list[dict[str, str]] = []
     source_contents: dict[str, str] = {}
+    schema_context = wfs.schema_context()
 
     for path in raw_sources:
         post = frontmatter.load(str(path))
@@ -159,7 +161,12 @@ async def compile_wiki(
         summaries = _load_step_output(wfs.staging_dir, "summaries")
     else:
         _mark_step_started(checkpoint, "summarize")
-        summaries = await step_summarize(source_data, llm, prompt_loader)
+        summaries = await step_summarize(
+            source_data,
+            llm,
+            prompt_loader,
+            schema_context=schema_context,
+        )
         _save_step_output(wfs.staging_dir, "summaries", summaries)
         _mark_step_completed(checkpoint, "summarize")
         _save_checkpoint(checkpoint, wfs.checkpoint_path)
@@ -172,7 +179,12 @@ async def compile_wiki(
         concepts = _load_step_output(wfs.staging_dir, "concepts")
     else:
         _mark_step_started(checkpoint, "extract_concepts")
-        concepts = await step_extract_concepts(summaries, llm, prompt_loader)
+        concepts = await step_extract_concepts(
+            summaries,
+            llm,
+            prompt_loader,
+            schema_context=schema_context,
+        )
         _save_step_output(wfs.staging_dir, "concepts", concepts)
         _mark_step_completed(checkpoint, "extract_concepts")
         _save_checkpoint(checkpoint, wfs.checkpoint_path)
@@ -196,6 +208,7 @@ async def compile_wiki(
             prompt_loader,
             min_words=config.compilation.min_article_words,
             max_words=config.compilation.max_article_words,
+            schema_context=schema_context,
         )
         _save_step_output(wfs.staging_dir, "articles", articles)
         _mark_step_completed(checkpoint, "generate_articles")
@@ -214,7 +227,7 @@ async def compile_wiki(
         _save_checkpoint(checkpoint, wfs.checkpoint_path)
 
     # -- Step 5: Build index --
-    progress.report("build_index", 5, total_steps, "Building INDEX.md and CONCEPTS.md...")
+    progress.report("build_index", 5, total_steps, "Building index.md and concepts.md...")
 
     index_files: dict[str, str]
     if _step_completed(checkpoint, "build_index"):
@@ -236,7 +249,12 @@ async def compile_wiki(
     else:
         _mark_step_started(checkpoint, "detect_conflicts")
         conflicts_md = await step_detect_conflicts(
-            articles, concepts, summaries, llm, prompt_loader
+            articles,
+            concepts,
+            summaries,
+            llm,
+            prompt_loader,
+            schema_context=schema_context,
         )
         _save_step_output(wfs.staging_dir, "conflicts", {"content": conflicts_md})
         _mark_step_completed(checkpoint, "detect_conflicts")
@@ -256,39 +274,7 @@ async def compile_wiki(
         article_path.write_text(article["content"])
 
     # Write per-source summary pages to staging
-    sources_dir = wfs.staging_dir / "sources"
-    sources_dir.mkdir(parents=True, exist_ok=True)
-    for summary in summaries:
-        source_id = summary.get("source", "unknown")
-        title = summary.get("title", source_id)
-        sm = summary.get("summary", "")
-        claims = summary.get("claims", [])
-        findings = summary.get("findings", [])
-        limitations = summary.get("limitations", [])
-        s_concepts = summary.get("concepts", [])
-
-        body = f"---\ntitle: \"Source: {title}\"\nid: \"source-{source_id}\"\n"
-        body += "category: sources\norigin: compilation\n---\n\n"
-        body += f"# {title}\n\n## Summary\n{sm}\n\n"
-        if claims:
-            body += "## Key Claims\n"
-            for c in claims:
-                claim_text = c.get("claim", c) if isinstance(c, dict) else str(c)
-                body += f"- {claim_text}\n"
-            body += "\n"
-        if findings:
-            body += "## Findings\n" + "".join(f"- {f}\n" for f in findings) + "\n"
-        if limitations:
-            body += "## Limitations\n" + "".join(f"- {lim}\n" for lim in limitations) + "\n"
-        if s_concepts:
-            body += "## Concepts\n" + ", ".join(f"[[{c}]]" for c in s_concepts) + "\n\n"
-        body += f"## Raw Source\n[[raw/{source_id}.md]]\n"
-
-        import re
-
-        slug = re.sub(r"[^\w\s-]", "", source_id.lower())
-        slug = re.sub(r"[\s_]+", "-", slug).strip("-")[:80]
-        (sources_dir / f"{slug}.md").write_text(body)
+    _write_source_summary_pages(wfs.staging_dir, summaries)
 
     # Write overview page to staging
     overview = _generate_overview(articles, concepts, summaries, source_data)
@@ -319,9 +305,6 @@ async def compile_wiki(
         sources_count=len(source_data),
     )
     wfs.append_log_entry(log_entry)
-
-    # Rebuild search index
-    wfs.refresh_search_index()
 
     # -- Update dependency graph --
     deps = DependencyGraph()
@@ -414,6 +397,7 @@ async def incremental_update(
     # Detect new/changed sources
     all_sources = wfs.list_raw_sources()
     current_hashes: dict[str, str] = {}
+    schema_context = wfs.schema_context()
     for path in all_sources:
         rel = str(path.relative_to(wfs.root))
         current_hashes[rel] = wfs.content_hash(path)
@@ -450,11 +434,21 @@ async def incremental_update(
 
     # Step 1: Summarize new sources
     progress.report("incremental", 2, 4, "Summarizing new sources...")
-    new_summaries = await step_summarize(new_source_data, llm, prompt_loader)
+    new_summaries = await step_summarize(
+        new_source_data,
+        llm,
+        prompt_loader,
+        schema_context=schema_context,
+    )
 
     # Step 2: Extract concepts from new summaries
     progress.report("incremental", 3, 4, "Matching concepts...")
-    new_concepts = await step_extract_concepts(new_summaries, llm, prompt_loader)
+    new_concepts = await step_extract_concepts(
+        new_summaries,
+        llm,
+        prompt_loader,
+        schema_context=schema_context,
+    )
 
     # Determine affected existing articles
     new_concept_names = [c["canonical_name"].lower() for c in new_concepts]
@@ -499,7 +493,14 @@ async def incremental_update(
         for summary in relevant_summaries:
             source_id = summary.get("source", "")
             source_content = new_source_contents.get(source_id, "")
-            patched = await step_patch_article(patched, summary, source_content, llm, prompt_loader)
+            patched = await step_patch_article(
+                patched,
+                summary,
+                source_content,
+                llm,
+                prompt_loader,
+                schema_context=schema_context,
+            )
 
         if patched != existing_content:
             article_path.write_text(patched)
@@ -526,6 +527,7 @@ async def incremental_update(
         prompt_loader,
         min_words=config.compilation.min_article_words,
         max_words=config.compilation.max_article_words,
+        schema_context=schema_context,
     )
 
     for article in new_articles:
@@ -535,26 +537,36 @@ async def incremental_update(
             article_path.parent.mkdir(parents=True, exist_ok=True)
             article_path.write_text(article["content"])
 
-    # Rebuild index from all wiki articles
-    all_articles = []
-    for md_path in wfs.list_wiki_articles():
-        content = md_path.read_text()
-        rel = str(md_path.relative_to(wfs.root))
-        all_articles.append({"path": rel, "content": content})
+    # Maintain 1:1 source summaries for new/changed sources.
+    _write_source_summary_pages(wfs.wiki_dir, new_summaries)
+
+    # Rebuild backlinks and index from the article corpus.
+    all_articles = _load_wiki_article_corpus(wfs)
+    all_articles = step_create_backlinks(all_articles, all_concepts)
+    for article in all_articles:
+        article_path = wfs.root / article["path"]
+        article_path.parent.mkdir(parents=True, exist_ok=True)
+        article_path.write_text(article["content"])
 
     index_files = step_build_index(all_articles, all_concepts, "Incremental update")
     for filename, content in index_files.items():
         (wfs.wiki_dir / filename).write_text(content)
 
+    all_source_data = _load_source_data(wfs)
+    overview = _generate_overview(all_articles, all_concepts, [], all_source_data)
+    (wfs.wiki_dir / "overview.md").write_text(overview)
+
     # Run conflict detection on new articles vs all existing
     progress.report("incremental", 5, 5, "Checking for conflicts...")
     conflicts_md = await step_detect_conflicts(
-        all_articles, all_concepts, new_summaries, llm, prompt_loader
+        all_articles,
+        all_concepts,
+        new_summaries,
+        llm,
+        prompt_loader,
+        schema_context=schema_context,
     )
     (wfs.wiki_dir / "CONFLICTS.md").write_text(conflicts_md)
-
-    # Rebuild search index
-    wfs.refresh_search_index()
 
     # Update deps
     for sd in new_source_data:
@@ -650,6 +662,98 @@ def _get_source_concepts(source_id: str, summaries: list[dict]) -> list[str]:
     return []
 
 
+def _load_source_data(wfs: WikiFileSystem) -> list[dict[str, str]]:
+    """Load all raw sources into the manifest shape used by overview generation."""
+    source_data: list[dict[str, str]] = []
+    for path in wfs.list_raw_sources():
+        post = frontmatter.load(str(path))
+        source_id = post.metadata.get("id", path.stem)
+        source_data.append(
+            {
+                "id": source_id,
+                "title": post.metadata.get("title", path.stem),
+                "content": post.content,
+                "word_count": str(post.metadata.get("word_count", len(post.content.split()))),
+                "path": str(path.relative_to(wfs.root)),
+            }
+        )
+    return source_data
+
+
+def _write_source_summary_pages(base_dir: Path, summaries: list[dict]) -> None:
+    """Write or refresh per-source summary pages under wiki/sources/."""
+    sources_dir = base_dir / "sources"
+    sources_dir.mkdir(parents=True, exist_ok=True)
+
+    for summary in summaries:
+        source_id = str(summary.get("source", "unknown"))
+        title = str(summary.get("title", source_id))
+        body = f"---\ntitle: \"Source: {title}\"\nid: \"source-{source_id}\"\n"
+        body += "category: sources\norigin: compilation\n---\n\n"
+        body += f"# {title}\n\n## Summary\n{summary.get('summary', '')}\n\n"
+
+        claims = summary.get("claims", [])
+        if claims:
+            body += "## Key Claims\n"
+            for claim in claims:
+                claim_text = claim.get("claim", claim) if isinstance(claim, dict) else str(claim)
+                body += f"- {claim_text}\n"
+            body += "\n"
+
+        findings = summary.get("findings", [])
+        if findings:
+            body += "## Findings\n" + "".join(f"- {finding}\n" for finding in findings) + "\n"
+
+        limitations = summary.get("limitations", [])
+        if limitations:
+            body += "## Limitations\n"
+            body += "".join(f"- {limitation}\n" for limitation in limitations)
+            body += "\n"
+
+        concepts_list = summary.get("concepts", [])
+        if concepts_list:
+            body += "## Concepts\n"
+            body += ", ".join(f"[[{concept}]]" for concept in concepts_list)
+            body += "\n\n"
+
+        body += f"## Raw Source\n[[raw/{source_id}.md]]\n"
+        slug = re.sub(r"[^\w\s-]", "", source_id.lower())
+        slug = re.sub(r"[\s_]+", "-", slug).strip("-")[:80]
+        (sources_dir / f"{slug}.md").write_text(body)
+
+
+def _load_wiki_article_corpus(wfs: WikiFileSystem) -> list[dict[str, str]]:
+    """Load the primary wiki article corpus, excluding structural pages and source summaries."""
+    structural = {
+        "INDEX.md",
+        "CONCEPTS.md",
+        "index.md",
+        "concepts.md",
+        "CONFLICTS.md",
+        "CHANGELOG.md",
+        "HEALTH_REPORT.md",
+        "SCHEMA.md",
+        "overview.md",
+        "log.md",
+    }
+    articles: list[dict[str, str]] = []
+
+    for md_path in wfs.list_wiki_articles():
+        rel_to_wiki = md_path.relative_to(wfs.wiki_dir)
+        if md_path.name in structural:
+            continue
+        if rel_to_wiki.parts and rel_to_wiki.parts[0] == "sources":
+            continue
+        articles.append(
+            {
+                "path": str(md_path.relative_to(wfs.root)),
+                "content": md_path.read_text(),
+            }
+        )
+
+    return articles
+
+
 def _generate_overview(
     articles: list[dict[str, str]],
     concepts: list[dict],
@@ -715,6 +819,11 @@ def _generate_overview(
     for s in summaries:
         for c in s.get("concepts", []):
             all_concepts_flat[c.lower()] = all_concepts_flat.get(c.lower(), 0) + 1
+    if not all_concepts_flat:
+        for concept in concepts:
+            canonical = str(concept.get("canonical_name", "")).strip().lower()
+            if canonical:
+                all_concepts_flat[canonical] = int(concept.get("source_count", 0))
     themes = sorted(all_concepts_flat.items(), key=lambda x: -x[1])[:10]
     if themes:
         lines.append("## Cross-Source Themes")
@@ -728,8 +837,22 @@ def _generate_overview(
 
 def _append_log(log_path: Path, entry: str) -> None:
     """Append an entry to log.md (creates file with header if needed)."""
+    header = (
+        "---\n"
+        'title: "Wiki Log"\n'
+        'id: "log"\n'
+        'category: "meta"\n'
+        'type: "log"\n'
+        'origin: "system"\n'
+        'status: "published"\n'
+        "---\n\n"
+        "# Wiki Log\n\n"
+        "Chronological record of all wiki operations.\n\n"
+    )
     if not log_path.exists():
-        log_path.write_text("# Wiki Log\n\nChronological record of all wiki operations.\n\n")
+        log_path.write_text(header)
+    elif not log_path.read_text().startswith("---"):
+        log_path.write_text(header + log_path.read_text())
     with open(log_path, "a") as f:
         f.write(entry)
 

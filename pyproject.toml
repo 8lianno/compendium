@@ -11,11 +11,6 @@ dependencies = [
     # CLI
     "typer>=0.15",
     "rich>=14",
-    # Web server
-    "fastapi>=0.115",
-    "uvicorn[standard]>=0.34",
-    "websockets>=15",
-    "python-multipart>=0.0.20",
     # LLM providers
     "anthropic>=0.52",
     "openai>=1.82",
@@ -31,15 +26,15 @@ dependencies = [
     "pymupdf>=1.27",
     "readability-lxml>=0.8",
     "markdownify>=0.14",
-    # Search
-    "whoosh>=2.7",
+    # File watcher
+    "watchdog>=6",
 ]
 
 [project.optional-dependencies]
 charts = ["matplotlib>=3.10"]
 gemini = ["google-genai>=1.14"]
 all = [
-    "compendium[ingest,search,charts,gemini]",
+    "compendium[charts,gemini]",
 ]
 
 [project.scripts]

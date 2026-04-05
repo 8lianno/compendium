@@ -1,5 +1,8 @@
 You are a research analyst. Produce a structured summary of the following source document.
 
+## Schema and Workflow Guidance
+{{schema_context}}
+
 ## Source
 Title: {{title}}
 Word count: {{word_count}}

@@ -1,5 +1,8 @@
 Compare the following two article passages about "{{concept}}".
 
+## Schema and Workflow Guidance
+{{schema_context}}
+
 ## Article A: {{article_a_title}}
 {{article_a_content}}
 

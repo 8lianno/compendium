@@ -70,9 +70,11 @@ def init(
             f"  [dim]wiki/[/dim]      — Compiled wiki articles (LLM-maintained)\n"
             f"  [dim]output/[/dim]    — Q&A reports, slides, charts\n\n"
             f"Next steps:\n"
-            f"  1. Add sources: [cyan]compendium ingest <file>[/cyan]\n"
+            f"  1. Open this folder in Obsidian as a vault\n"
             f"  2. Configure LLM: [cyan]compendium config set-key anthropic[/cyan]\n"
-            f"  3. Compile wiki: [cyan]compendium compile --mode batch[/cyan]",
+            f"  3. Add sources: [cyan]compendium ingest <file>[/cyan]\n"
+            f"  4. Compile wiki: [cyan]compendium compile --mode batch[/cyan]\n"
+            f"  5. Auto-ingest: [cyan]compendium watch[/cyan]",
             title=f"[bold]{name}[/bold]",
         )
     )
@@ -275,6 +277,7 @@ def ask(
 
     from compendium.llm.factory import create_provider
     from compendium.llm.prompts import PromptLoader
+    from compendium.pipeline.steps import build_log_entry
     from compendium.qa.engine import ask_question
     from compendium.qa.filing import file_to_wiki as _file_to_wiki
     from compendium.qa.output import render_chart_bundle, render_html, render_report, render_slides
@@ -283,7 +286,8 @@ def ask(
     wfs = _get_wiki_fs(project_dir)
     config = _get_config(project_dir)
 
-    if not wfs.wiki_dir.exists() or not (wfs.wiki_dir / "INDEX.md").exists():
+    has_index = (wfs.wiki_dir / "index.md").exists() or (wfs.wiki_dir / "INDEX.md").exists()
+    if not wfs.wiki_dir.exists() or not has_index:
         console.print("[yellow]No compiled wiki found. Run `compendium compile` first.[/yellow]")
         raise typer.Exit(1)
 
@@ -356,6 +360,18 @@ def ask(
         else:
             console.print(f"[yellow]{filing_result['message']}[/yellow]")
 
+    wfs.append_log_entry(
+        build_log_entry(
+            "query",
+            title=question[:80],
+            notes=(
+                f"output: {output or 'text'}; "
+                f"articles loaded: {result.get('articles_loaded', 0)}; "
+                f"filed: {'yes' if file_to_wiki else 'no'}"
+            ),
+        )
+    )
+
 
 # -- search --
 
@@ -363,47 +379,17 @@ def ask(
 @app.command()
 def search(
     query: Annotated[str, typer.Argument(help="Search query")],
-    limit: Annotated[int, typer.Option(help="Max results")] = 5,
-    json_output: Annotated[
-        bool, typer.Option("--json", help="Output as JSON (for LLM agent use)")
-    ] = False,
-    rebuild: Annotated[
-        bool, typer.Option("--rebuild", help="Rebuild search index before searching")
-    ] = False,
     project_dir: Annotated[
         Path | None, typer.Option("--dir", "-d", help="Project directory")
     ] = None,
 ) -> None:
-    """Search the wiki using full-text search."""
-    import json
-
-    from compendium.search.engine import SearchEngine
-
-    wfs = _get_wiki_fs(project_dir)
-    engine = SearchEngine(wfs.wiki_dir)
-
-    if rebuild:
-        count = engine.build_index()
-        console.print(f"[dim]Indexed {count} articles.[/dim]")
-
-    results = engine.search(query, limit=limit)
-
-    if json_output:
-        console.print_json(json.dumps(results, indent=2))
-        return
-
-    if not results:
-        console.print(f"No articles match '{query}'.")
-        return
-
-    console.print(f"[bold]{len(results)}[/bold] result(s) for '{query}':\n")
-    for r in results:
-        console.print(
-            f"  [cyan]{r['title']}[/cyan] [dim]({r['category']}, score: {r['score']})[/dim]"
-        )
-        if r["snippet"]:
-            console.print(f"    {r['snippet'][:120]}")
-        console.print()
+    """Search the wiki (deprecated — use Obsidian search)."""
+    console.print(
+        "[yellow]Full-text search has been removed.[/yellow]\n\n"
+        "Use Obsidian's built-in search (Cmd+Shift+F) or:\n"
+        "  [cyan]compendium ask \"your question\"[/cyan] — semantic search with citations"
+    )
+    raise typer.Exit(0)
 
 
 # -- lint --
@@ -422,6 +408,7 @@ def lint(
     from compendium.lint.engine import lint_wiki
 
     wfs = _get_wiki_fs(project_dir)
+    config = _get_config(project_dir)
 
     if not wfs.wiki_dir.exists():
         console.print("[yellow]No wiki found. Run `compendium compile` first.[/yellow]")
@@ -439,6 +426,14 @@ def lint(
             raise typer.Exit(1) from None
 
     report = lint_wiki(wfs.wiki_dir, raw_dir=wfs.raw_dir, llm=llm)
+    if config.lint.missing_data_web_search:
+        for issue in report.issues:
+            query = issue.location.replace(".md", "").replace("-", " ").strip() or "missing data"
+            search_url = f"https://www.google.com/search?q={query.replace(' ', '+')}"
+            if issue.suggestion:
+                issue.suggestion = f"{issue.suggestion} Research lead: {search_url}"
+            else:
+                issue.suggestion = f"Research lead: {search_url}"
 
     # Write HEALTH_REPORT.md
     report_path = wfs.wiki_dir / "HEALTH_REPORT.md"
@@ -501,6 +496,7 @@ def ingest(
     from rich.progress import Progress
 
     from compendium.ingest.file_drop import ingest_batch
+    from compendium.pipeline.steps import build_log_entry
 
     wfs = _get_wiki_fs(project_dir)
     file_paths = [Path(p) for p in paths]
@@ -527,6 +523,16 @@ def ingest(
         f"[bold]{result.failed}[/bold] failed "
         f"(of {result.total} total)"
     )
+
+    wfs.append_log_entry(
+        build_log_entry(
+            "ingest",
+            title="CLI ingest",
+            sources_count=result.succeeded,
+            notes=f"failed: {result.failed}; duplicate_mode: {duplicate_mode}",
+        )
+    )
+    wfs.auto_commit("[ingest]: add raw sources", paths=[wfs.raw_dir, wfs.wiki_dir / "log.md"])
 
     # Conversational ingest: discuss takeaways with LLM
     if discuss and result.succeeded > 0:
@@ -568,6 +574,112 @@ def ingest(
         console.print(response.content)
 
 
+# -- watch --
+
+
+@app.command()
+def watch(
+    project_dir: Annotated[
+        Path | None, typer.Option("--dir", "-d", help="Project directory")
+    ] = None,
+    duplicate_mode: Annotated[
+        str, typer.Option(help="Duplicate handling: cancel | overwrite")
+    ] = "cancel",
+    debounce: Annotated[
+        float, typer.Option(help="Seconds to wait for file to stabilize")
+    ] = 2.0,
+) -> None:
+    """Watch raw/ for new files and auto-ingest them."""
+    from compendium.ingest.watcher import run_watcher
+
+    wfs = _get_wiki_fs(project_dir)
+    console.print(
+        f"[bold]Watching[/bold] {wfs.raw_dir} for new files... (Ctrl+C to stop)"
+    )
+
+    processed, errors = run_watcher(
+        wfs,
+        duplicate_mode=duplicate_mode,
+        debounce_seconds=debounce,
+        console=console,
+    )
+
+    console.print(
+        f"\n[bold]{len(processed)}[/bold] ingested, "
+        f"[bold]{len(errors)}[/bold] errors"
+    )
+
+
+# -- download-media --
+
+
+@app.command("download-media")
+def download_media(
+    project_dir: Annotated[
+        Path | None, typer.Option("--dir", "-d", help="Project directory")
+    ] = None,
+    dry_run: Annotated[
+        bool, typer.Option("--dry-run", help="Show what would be downloaded")
+    ] = False,
+) -> None:
+    """Download remote images in wiki articles for offline access."""
+    from compendium.ingest.media import download_and_localize, scan_remote_images
+
+    wfs = _get_wiki_fs(project_dir)
+    results = scan_remote_images(wfs.wiki_dir)
+
+    if not results:
+        console.print("No remote images found in wiki articles.")
+        return
+
+    total_urls = sum(len(urls) for _, urls in results)
+    console.print(
+        f"Found [bold]{total_urls}[/bold] remote image(s) across "
+        f"[bold]{len(results)}[/bold] article(s)."
+    )
+
+    if dry_run:
+        for article_path, urls in results:
+            rel = article_path.relative_to(wfs.wiki_dir)
+            console.print(f"\n  [cyan]{rel}[/cyan]")
+            for url in urls:
+                console.print(f"    {url}")
+        return
+
+    images_dir = wfs.wiki_dir / "images"
+    total_downloaded = 0
+    total_failed = 0
+
+    for article_path, _ in results:
+        rel = article_path.relative_to(wfs.wiki_dir)
+        downloaded, failed = download_and_localize(article_path, images_dir)
+        if downloaded:
+            console.print(f"  [green]+{downloaded}[/green] {rel}")
+        if failed:
+            console.print(f"  [red]x{failed}[/red] {rel}")
+        total_downloaded += downloaded
+        total_failed += failed
+
+    console.print(
+        f"\nDownloaded [bold]{total_downloaded}[/bold] images "
+        f"([bold]{total_failed}[/bold] failed)"
+    )
+
+    from compendium.pipeline.steps import build_log_entry
+
+    wfs.append_log_entry(
+        build_log_entry(
+            "download-media",
+            title="Download remote images",
+            notes=f"downloaded: {total_downloaded}; failed: {total_failed}",
+        )
+    )
+    wfs.auto_commit(
+        f"[media]: download {total_downloaded} remote images",
+        paths=[wfs.wiki_dir],
+    )
+
+
 # -- status --
 
 
@@ -607,7 +719,7 @@ def verify_index(
         Path | None, typer.Option("--dir", "-d", help="Project directory")
     ] = None,
 ) -> None:
-    """Check INDEX.md consistency against actual wiki contents."""
+    """Check index.md consistency against actual wiki contents."""
     from compendium.pipeline.index_ops import verify_wiki_index
 
     wfs = _get_wiki_fs(project_dir)
@@ -633,7 +745,7 @@ def rebuild_index(
         Path | None, typer.Option("--dir", "-d", help="Project directory")
     ] = None,
 ) -> None:
-    """Rebuild INDEX.md and CONCEPTS.md from wiki contents."""
+    """Rebuild index.md and concepts.md from wiki contents."""
     from compendium.pipeline.index_ops import rebuild_wiki_index
 
     wfs = _get_wiki_fs(project_dir)
@@ -824,27 +936,3 @@ def config_show(
     """Show current configuration."""
     config = _get_config(project_dir)
     console.print_json(config.model_dump_json(indent=2))
-
-
-# -- serve --
-
-
-@app.command()
-def serve(
-    project_dir: Annotated[
-        Path | None, typer.Option("--dir", "-d", help="Project directory")
-    ] = None,
-    port: Annotated[int, typer.Option(help="Server port")] = 17394,
-    host: Annotated[str, typer.Option(help="Server host")] = "127.0.0.1",
-) -> None:
-    """Start the Compendium web server."""
-    import uvicorn
-
-    console.print(f"[bold]Starting Compendium server at http://{host}:{port}[/bold]")
-    uvicorn.run(
-        "compendium.server:create_app",
-        factory=True,
-        host=host,
-        port=port,
-        reload=False,
-    )

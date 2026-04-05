@@ -76,7 +76,9 @@ TEMPLATES: dict[str, SchemaTemplate] = {
     "personal-tracking": SchemaTemplate(
         template_id="personal-tracking",
         label="Personal Tracking",
-        description="For habits, journals, health logs, retrospectives, and recurring measurements.",
+        description=(
+            "For habits, journals, health logs, retrospectives, and recurring measurements."
+        ),
         focus_areas=(
             "daily or weekly logs",
             "trend summaries",
@@ -146,8 +148,8 @@ def generate_schema_md(template_id: str = "research", domain: str = "") -> str:
 
 ```
 wiki/
-  INDEX.md          # Master index table of all articles
-  CONCEPTS.md       # Concept taxonomy (hierarchical)
+  index.md          # Master index table of all articles
+  concepts.md       # Concept taxonomy (hierarchical)
   CONFLICTS.md      # Detected cross-source contradictions
   SCHEMA.md         # This file — wiki format documentation
   CHANGELOG.md      # Compilation history
@@ -195,12 +197,11 @@ updated_at: "ISO-8601 timestamp"
 
 ## Index and Log Contracts
 
-- `INDEX.md` must use the columns: `Page | Type | Summary | Sources | Updated`.
-- `INDEX.md` should be grouped by category and alphabetized by page title.
+- `index.md` must use the columns: `Page | Type | Summary | Sources | Updated`.
+- `index.md` should be grouped by category and alphabetized by page title.
 - `log.md` entries must use the format `## [YYYY-MM-DD] operation | Title`.
 
 ## Review Questions
 
 {review}
 """
-

@@ -60,8 +60,8 @@ def wiki_with_articles(tmp_path: Path) -> WikiFileSystem:
     wfs = WikiFileSystem(tmp_path / "project")
     wfs.init_project("Test Wiki")
 
-    # Create INDEX.md
-    (wfs.wiki_dir / "INDEX.md").write_text(
+    # Create index.md
+    (wfs.wiki_dir / "index.md").write_text(
         "# Wiki Index\n\n"
         "| Article | Category | Summary |\n"
         "|---------|----------|--------|\n"
@@ -72,8 +72,8 @@ def wiki_with_articles(tmp_path: Path) -> WikiFileSystem:
         "| [[bert|BERT]] | concepts | Bidirectional encoder model |\n"
     )
 
-    # Create CONCEPTS.md
-    (wfs.wiki_dir / "CONCEPTS.md").write_text(
+    # Create concepts.md
+    (wfs.wiki_dir / "concepts.md").write_text(
         "# Concepts\n\n"
         "## Concepts\n"
         "- **Transformer Architecture** — 3 sources\n"
@@ -179,7 +179,7 @@ class TestIndexParsing:
     def test_parse_index(self, wiki_with_articles: WikiFileSystem) -> None:
         from compendium.qa.engine import _parse_index
 
-        entries = _parse_index(wiki_with_articles.wiki_dir / "INDEX.md")
+        entries = _parse_index(wiki_with_articles.wiki_dir / "index.md")
         assert len(entries) == 3
         assert entries[0]["slug"] == "transformer-architecture"
         assert entries[0]["title"] == "Transformer Architecture"
@@ -347,7 +347,7 @@ class TestFeedbackFiling:
     def test_category_detection(self, wiki_with_articles: WikiFileSystem) -> None:
         from compendium.qa.filing import _detect_category
 
-        concepts_path = wiki_with_articles.wiki_dir / "CONCEPTS.md"
+        concepts_path = wiki_with_articles.wiki_dir / "concepts.md"
 
         # Content mentioning transformers should match "concepts" category
         category = _detect_category(
@@ -370,5 +370,5 @@ class TestFeedbackFiling:
 
         file_to_wiki(report, wiki_with_articles)
 
-        index = (wiki_with_articles.wiki_dir / "INDEX.md").read_text()
+        index = (wiki_with_articles.wiki_dir / "index.md").read_text()
         assert "new-analysis" in index.lower() or "New analysis" in index

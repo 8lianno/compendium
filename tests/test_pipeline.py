@@ -301,10 +301,12 @@ class TestStepBuildIndex:
         concepts = [{"canonical_name": "Test", "category": "concepts", "source_count": 2}]
 
         result = step_build_index(articles, concepts)
-        assert "INDEX.md" in result
-        assert "CONCEPTS.md" in result
-        assert "Test" in result["INDEX.md"]
-        assert "Test" in result["CONCEPTS.md"]
+        assert "index.md" in result
+        assert "concepts.md" in result
+        assert result["index.md"].startswith("---\n")
+        assert result["concepts.md"].startswith("---\n")
+        assert "Test" in result["index.md"]
+        assert "Test" in result["concepts.md"]
 
 
 class TestStepBacklinks:
@@ -359,10 +361,13 @@ class TestFullPipeline:
         articles = wiki_project.list_wiki_articles()
         assert len(articles) >= 1
 
-        # Check INDEX.md exists
-        assert (wiki_project.wiki_dir / "INDEX.md").exists()
-        assert (wiki_project.wiki_dir / "CONCEPTS.md").exists()
+        # Check index.md exists
+        assert (wiki_project.wiki_dir / "index.md").exists()
+        assert (wiki_project.wiki_dir / "concepts.md").exists()
         assert (wiki_project.wiki_dir / "CONFLICTS.md").exists()
+        assert (wiki_project.wiki_dir / "index.md").read_text().startswith("---\n")
+        assert (wiki_project.wiki_dir / "concepts.md").read_text().startswith("---\n")
+        assert (wiki_project.wiki_dir / "CONFLICTS.md").read_text().startswith("---\n")
 
         # Check deps.json exists
         assert wiki_project.deps_path.exists()

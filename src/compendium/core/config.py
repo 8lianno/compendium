@@ -50,13 +50,6 @@ class LintConfig(BaseModel):
     missing_data_web_search: bool = False
 
 
-class ServerConfig(BaseModel):
-    """Local server settings."""
-
-    port: int = 17394
-    host: str = "127.0.0.1"
-
-
 class ProjectConfig(BaseModel):
     """Top-level project configuration."""
 
@@ -71,7 +64,6 @@ class CompendiumConfig(BaseModel):
     compilation: CompilationConfig = Field(default_factory=CompilationConfig)
     templates: TemplateConfig = Field(default_factory=TemplateConfig)
     lint: LintConfig = Field(default_factory=LintConfig)
-    server: ServerConfig = Field(default_factory=ServerConfig)
 
     @classmethod
     def load(cls, path: Path) -> CompendiumConfig:

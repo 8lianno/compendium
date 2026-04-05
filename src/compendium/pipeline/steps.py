@@ -8,6 +8,8 @@ from typing import TYPE_CHECKING, Any
 
 import frontmatter
 
+from compendium.core.wikilinks import WIKILINK_PATTERN
+
 if TYPE_CHECKING:
     from compendium.llm.prompts import PromptLoader
     from compendium.llm.provider import LlmProvider
@@ -26,6 +28,41 @@ def _parse_json_response(text: str) -> Any:
     return json.loads(text)
 
 
+def _normalize_summary_record(summary: dict[str, Any], source: dict[str, str]) -> dict[str, Any]:
+    """Anchor summary metadata to the source being processed.
+
+    Summaries are produced one source at a time, so the source id/title should come
+    from the ingest manifest rather than the model output. This keeps downstream
+    summary pages, conflict checks, and dependency tracking stable even if the model
+    paraphrases or mislabels the source metadata.
+    """
+    normalized = dict(summary)
+    normalized["source"] = source["id"]
+    normalized["title"] = source["title"]
+    return normalized
+
+
+def _meta_page_frontmatter(
+    *,
+    title: str,
+    page_id: str,
+    page_type: str,
+    updated_at: str,
+) -> str:
+    """Build Dataview-friendly frontmatter for generated meta pages."""
+    return (
+        "---\n"
+        f'title: "{title}"\n'
+        f'id: "{page_id}"\n'
+        'category: "meta"\n'
+        f'type: "{page_type}"\n'
+        'origin: "compilation"\n'
+        'status: "published"\n'
+        f'updated_at: "{updated_at}"\n'
+        "---\n\n"
+    )
+
+
 # -- Step 1: Summarize --
 
 
@@ -34,6 +71,7 @@ async def step_summarize(
     llm: LlmProvider,
     prompt_loader: PromptLoader,
     batch_size: int = 5,
+    schema_context: str = "",
 ) -> list[dict]:
     """Summarize raw sources into structured JSON summaries.
 
@@ -53,6 +91,7 @@ async def step_summarize(
 
     for source in sources:
         prompt = template.render(
+            schema_context=schema_context,
             title=source["title"],
             word_count=source["word_count"],
             content=source["content"],
@@ -72,9 +111,13 @@ async def step_summarize(
         try:
             summary = _parse_json_response(response.content)
             if isinstance(summary, list):
-                summaries.extend(summary)
+                summaries.extend(
+                    _normalize_summary_record(item, source)
+                    for item in summary
+                    if isinstance(item, dict)
+                )
             else:
-                summaries.append(summary)
+                summaries.append(_normalize_summary_record(summary, source))
         except (json.JSONDecodeError, ValueError):
             # Fallback: create a minimal summary from the response
             summaries.append(
@@ -99,6 +142,7 @@ async def step_extract_concepts(
     summaries: list[dict],
     llm: LlmProvider,
     prompt_loader: PromptLoader,
+    schema_context: str = "",
 ) -> list[dict]:
     """Build a concept taxonomy from source summaries.
 
@@ -112,7 +156,7 @@ async def step_extract_concepts(
     # Format summaries for the prompt
     summaries_text = json.dumps(summaries, indent=2)
 
-    prompt = template.render(summaries=summaries_text)
+    prompt = template.render(schema_context=schema_context, summaries=summaries_text)
 
     response = await llm.complete(
         CompletionRequest(
@@ -159,6 +203,7 @@ async def step_generate_articles(
     prompt_loader: PromptLoader,
     min_words: int = 200,
     max_words: int = 3000,
+    schema_context: str = "",
 ) -> list[dict[str, str]]:
     """Generate wiki articles for concepts that warrant them.
 
@@ -208,6 +253,7 @@ async def step_generate_articles(
         ]
 
         prompt = template.render(
+            schema_context=schema_context,
             concept_name=name,
             category=category,
             related_concepts=", ".join(related[:10]),
@@ -278,7 +324,30 @@ def step_create_backlinks(
         slug = a["path"].split("/")[-1].replace(".md", "")
         article_by_slug[slug] = i
 
-    updated_articles: list[dict[str, str]] = []
+    def extract_section_links(content: str, heading: str) -> list[str]:
+        pattern = re.compile(rf"## {re.escape(heading)}\n(.*?)(?=\n## |\Z)", re.DOTALL)
+        match = pattern.search(content)
+        if not match:
+            return []
+        links: list[str] = []
+        for target, _display in WIKILINK_PATTERN.findall(match.group(1)):
+            target_slug = target.strip().split("/")[-1].replace(".md", "").strip()
+            if target_slug:
+                links.append(target_slug)
+        return links
+
+    def upsert_section(content: str, heading: str, slugs: list[str]) -> str:
+        if not slugs:
+            return content
+        unique = sorted(dict.fromkeys(slugs))
+        bullets = "\n".join(f"- [[{slug}]]" for slug in unique)
+        section = f"## {heading}\n{bullets}\n"
+        pattern = re.compile(rf"\n## {re.escape(heading)}\n.*?(?=\n## |\Z)", re.DOTALL)
+        if pattern.search(content):
+            return pattern.sub(f"\n{section}", content)
+        return content.rstrip() + f"\n\n{section}"
+
+    related_map: dict[str, list[str]] = {}
 
     for article in articles:
         content = article["content"]
@@ -294,11 +363,26 @@ def step_create_backlinks(
             if pattern.search(content) and slug not in related:
                 related.append(slug)
 
-        # Add Related Articles section if not present
-        if related and "## Related Articles" not in content:
-            related_links = "\n".join(f"- [[{s}]]" for s in related[:15])
-            content += f"\n\n## Related Articles\n{related_links}\n"
+        related_map[my_slug] = related[:15]
 
+    inbound_map: dict[str, list[str]] = {slug: [] for slug in article_by_slug}
+    for source_slug, targets in related_map.items():
+        for target_slug in targets:
+            if target_slug in inbound_map:
+                inbound_map[target_slug].append(source_slug)
+
+    updated_articles: list[dict[str, str]] = []
+    for article in articles:
+        content = article["content"]
+        my_slug = article["path"].split("/")[-1].replace(".md", "")
+
+        related = extract_section_links(content, "Related Articles") + related_map.get(my_slug, [])
+        referenced_by = extract_section_links(
+            content, "Referenced By"
+        ) + inbound_map.get(my_slug, [])
+
+        content = upsert_section(content, "Related Articles", related)
+        content = upsert_section(content, "Referenced By", referenced_by)
         updated_articles.append({"path": article["path"], "content": content})
 
     return updated_articles
@@ -312,10 +396,10 @@ def step_build_index(
     concepts: list[dict],
     compilation_log: str = "",
 ) -> dict[str, str]:
-    """Build INDEX.md, CONCEPTS.md, and CHANGELOG.md.
+    """Build `index.md` and `concepts.md`.
 
     Returns:
-        Dict of {"INDEX.md": content, "CONCEPTS.md": content, ...}
+        Dict of {"index.md": content, "concepts.md": content}
     """
     from datetime import UTC, datetime
 
@@ -375,8 +459,14 @@ def step_build_index(
             (title, slug, str(page_type), summary, sources_value, updated_value)
         )
 
-    # -- INDEX.md --
+    # -- index.md --
     index_lines = [
+        _meta_page_frontmatter(
+            title="Wiki Index",
+            page_id="index",
+            page_type="index",
+            updated_at=now,
+        ),
         "# Wiki Index\n",
         f"*Last updated: {now}*\n",
         f"*Articles: {len(articles)}*\n\n",
@@ -397,8 +487,14 @@ def step_build_index(
             )
         index_lines.append("\n")
 
-    # -- CONCEPTS.md --
+    # -- concepts.md --
     concepts_lines = [
+        _meta_page_frontmatter(
+            title="Concept Taxonomy",
+            page_id="concepts",
+            page_type="taxonomy",
+            updated_at=now,
+        ),
         "# Concepts\n",
         f"*Last updated: {now}*\n\n",
     ]
@@ -421,8 +517,8 @@ def step_build_index(
         concepts_lines.append("\n")
 
     return {
-        "INDEX.md": "".join(index_lines),
-        "CONCEPTS.md": "".join(concepts_lines),
+        "index.md": "".join(index_lines),
+        "concepts.md": "".join(concepts_lines),
     }
 
 
@@ -477,6 +573,7 @@ async def step_patch_article(
     new_source_content: str,
     llm: LlmProvider,
     prompt_loader: PromptLoader,
+    schema_context: str = "",
 ) -> str:
     """Patch an existing wiki article with information from a new source.
 
@@ -486,6 +583,7 @@ async def step_patch_article(
 
     template = prompt_loader.load("patch_article")
     prompt = template.render(
+        schema_context=schema_context,
         existing_article=existing_content[:4000],
         new_summary=json.dumps(new_summary, indent=2)[:2000],
         new_content=new_source_content[:3000],
@@ -517,6 +615,7 @@ async def step_detect_conflicts(
     summaries: list[dict],
     llm: LlmProvider,
     prompt_loader: PromptLoader,
+    schema_context: str = "",
 ) -> str:
     """Detect contradictions across articles. Returns CONFLICTS.md content."""
     from compendium.llm.provider import CompletionRequest, Message
@@ -567,6 +666,7 @@ async def step_detect_conflicts(
         concept_name = next(iter(shared)) if shared else "shared topic"
 
         prompt = template.render(
+            schema_context=schema_context,
             concept=concept_name,
             article_a_title=a_title,
             article_a_content=a_content,
@@ -597,6 +697,12 @@ async def step_detect_conflicts(
 
     now = datetime.now(UTC).isoformat()
     lines = [
+        _meta_page_frontmatter(
+            title="Conflict Register",
+            page_id="conflicts",
+            page_type="conflicts",
+            updated_at=now,
+        ),
         "# Conflicts\n\n",
         f"*Last checked: {now}*\n",
         f"*Candidate pairs evaluated: {len(candidate_pairs)}*\n",

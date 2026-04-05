@@ -79,7 +79,6 @@ class TestCompendiumConfig:
         config = CompendiumConfig()
         assert config.project.name == "My Knowledge Wiki"
         assert config.models.default_provider == "anthropic"
-        assert config.server.port == 17394
 
     def test_load_nonexistent(self, tmp_path: Path) -> None:
         config = CompendiumConfig.load(tmp_path / "nonexistent.toml")
@@ -87,10 +86,9 @@ class TestCompendiumConfig:
 
     def test_load_from_file(self, tmp_path: Path) -> None:
         config_file = tmp_path / "compendium.toml"
-        config_file.write_text('[project]\nname = "My Test Wiki"\n\n[server]\nport = 9999\n')
+        config_file.write_text('[project]\nname = "My Test Wiki"\n')
         config = CompendiumConfig.load(config_file)
         assert config.project.name == "My Test Wiki"
-        assert config.server.port == 9999
 
 
 class TestWikiFileSystem:

@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import hashlib
 import json
-import re
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any, Literal
 from uuid import uuid4
@@ -16,6 +15,8 @@ from compendium.core.templates import generate_schema_md
 from compendium.pipeline.controller import (
     _generate_overview,
     _get_source_concepts,
+    _load_source_data,
+    _write_source_summary_pages,
     compile_wiki,
     incremental_update,
 )
@@ -153,7 +154,9 @@ async def _summarize_single_source(
     raw_path = wfs.root / source["path"]
     post = frontmatter.load(str(raw_path))
     template = prompt_loader.load("summarize")
+    schema_context = wfs.schema_context()
     prompt = template.render(
+        schema_context=schema_context,
         title=source["title"],
         word_count=source["word_count"],
         content=post.content,
@@ -230,6 +233,7 @@ async def _finalize_compile_from_summaries(
     audit_log_path: Path,
 ) -> dict[str, Any]:
     wfs.clear_staging()
+    schema_context = wfs.schema_context()
 
     source_contents: dict[str, str] = {}
     for source in source_data:
@@ -237,7 +241,12 @@ async def _finalize_compile_from_summaries(
         post = frontmatter.load(str(raw_path))
         source_contents[source["id"]] = post.content
 
-    concepts = await step_extract_concepts(summaries, llm, prompt_loader)
+    concepts = await step_extract_concepts(
+        summaries,
+        llm,
+        prompt_loader,
+        schema_context=schema_context,
+    )
     _write_audit(
         audit_log_path,
         "extract_concepts_complete",
@@ -252,6 +261,7 @@ async def _finalize_compile_from_summaries(
         prompt_loader,
         min_words=config.compilation.min_article_words,
         max_words=config.compilation.max_article_words,
+        schema_context=schema_context,
     )
     _write_audit(
         audit_log_path,
@@ -261,7 +271,14 @@ async def _finalize_compile_from_summaries(
 
     articles = step_create_backlinks(articles, concepts)
     index_files = step_build_index(articles, concepts, "Interactive compile")
-    conflicts_md = await step_detect_conflicts(articles, concepts, summaries, llm, prompt_loader)
+    conflicts_md = await step_detect_conflicts(
+        articles,
+        concepts,
+        summaries,
+        llm,
+        prompt_loader,
+        schema_context=schema_context,
+    )
 
     if wfs.list_wiki_articles():
         wfs.create_backup()
@@ -271,45 +288,9 @@ async def _finalize_compile_from_summaries(
         article_path.parent.mkdir(parents=True, exist_ok=True)
         article_path.write_text(article["content"])
 
-    sources_dir = wfs.staging_dir / "sources"
-    sources_dir.mkdir(parents=True, exist_ok=True)
-    for summary in summaries:
-        source_id = summary.get("source", "unknown")
-        title = summary.get("title", source_id)
-        body = f"---\ntitle: \"Source: {title}\"\nid: \"source-{source_id}\"\n"
-        body += "category: sources\norigin: compilation\n---\n\n"
-        body += f"# {title}\n\n## Summary\n{summary.get('summary', '')}\n\n"
+    _write_source_summary_pages(wfs.staging_dir, summaries)
 
-        claims = summary.get("claims", [])
-        if claims:
-            body += "## Key Claims\n"
-            for claim in claims:
-                claim_text = claim.get("claim", claim) if isinstance(claim, dict) else str(claim)
-                body += f"- {claim_text}\n"
-            body += "\n"
-
-        findings = summary.get("findings", [])
-        if findings:
-            body += "## Findings\n" + "".join(f"- {finding}\n" for finding in findings) + "\n"
-
-        limitations = summary.get("limitations", [])
-        if limitations:
-            body += "## Limitations\n"
-            body += "".join(f"- {limitation}\n" for limitation in limitations)
-            body += "\n"
-
-        concepts_list = summary.get("concepts", [])
-        if concepts_list:
-            body += "## Concepts\n"
-            body += ", ".join(f"[[{concept}]]" for concept in concepts_list)
-            body += "\n\n"
-
-        body += f"## Raw Source\n[[raw/{source_id}.md]]\n"
-        slug = re.sub(r"[^\w\s-]", "", str(source_id).lower())
-        slug = re.sub(r"[\s_]+", "-", slug).strip("-")[:80]
-        (sources_dir / f"{slug}.md").write_text(body)
-
-    overview = _generate_overview(articles, concepts, summaries, source_data)
+    overview = _generate_overview(articles, concepts, summaries, _load_source_data(wfs))
     (wfs.staging_dir / "overview.md").write_text(overview)
 
     for filename, content in index_files.items():
@@ -330,8 +311,6 @@ async def _finalize_compile_from_summaries(
             notes="mode: interactive",
         )
     )
-    wfs.refresh_search_index()
-
     deps = DependencyGraph()
     for source in source_data:
         raw_path = wfs.root / source["path"]
