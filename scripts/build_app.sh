@@ -6,11 +6,11 @@
 #
 # Output:
 #   dist/Compendium.app   — the standalone .app bundle
-#   dist/Compendium.dmg   — (optional) disk image for distribution
+#   dist/Compendium.dmg   — disk image for distribution
 #
 # Prerequisites:
 #   uv sync --group dev
-#   uv pip install py2app
+#   uv pip install pyinstaller
 
 set -euo pipefail
 
@@ -19,20 +19,21 @@ cd "$(dirname "$0")/.."
 echo "==> Cleaning previous build..."
 rm -rf build/ dist/
 
-echo "==> Installing py2app..."
-uv pip install py2app 2>/dev/null || true
+echo "==> Ensuring PyInstaller is installed..."
+uv pip install pyinstaller 2>/dev/null || true
 
 echo "==> Building Compendium.app..."
-uv run python setup_app.py py2app --no-strip
+uv run pyinstaller compendium.spec --noconfirm --clean 2>&1 | tail -5
 
-echo "==> Build complete!"
-echo "    App bundle: dist/Compendium.app"
+echo ""
 
 # Check if the app was created
 if [ -d "dist/Compendium.app" ]; then
+    echo "==> Build complete!"
+    echo "    App bundle: dist/Compendium.app"
     echo "    Size: $(du -sh dist/Compendium.app | cut -f1)"
 
-    # Optional: create DMG for distribution
+    # Create DMG for distribution
     if command -v hdiutil &>/dev/null; then
         echo "==> Creating DMG installer..."
         hdiutil create -volname "Compendium" \
