@@ -35,9 +35,24 @@ def delete_api_key(provider: str) -> None:
         keyring.delete_password(KEYRING_SERVICE, provider)
 
 
-def create_provider(model_config: ModelConfig) -> LlmProvider:
-    """Create a single LLM provider from a ModelConfig."""
+CLOUD_PROVIDERS = {"anthropic", "openai", "gemini"}
+
+
+def create_provider(
+    model_config: ModelConfig, *, cloud_only: bool = False
+) -> LlmProvider:
+    """Create a single LLM provider from a ModelConfig.
+
+    If cloud_only is True, raises ValueError for local providers (e.g. Ollama).
+    """
     provider_name = model_config.provider.lower()
+
+    if cloud_only and provider_name not in CLOUD_PROVIDERS:
+        msg = (
+            f"Provider '{provider_name}' is not a cloud API. "
+            f"Daemon requires cloud-only providers: {', '.join(sorted(CLOUD_PROVIDERS))}"
+        )
+        raise ValueError(msg)
 
     if provider_name == "anthropic":
         api_key = get_api_key("anthropic")

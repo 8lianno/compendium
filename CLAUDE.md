@@ -12,7 +12,10 @@ uv run compendium clip <url>        # Clip web pages with images into raw/
 uv run compendium apple-books       # Export Apple Books highlights into raw/
 uv run compendium watch             # Auto-ingest new files in raw/
 uv run compendium download-media    # Download remote images for offline access
-uv run pytest tests/ -v             # Run tests (175 tests)
+uv run compendium daemon start      # Start background daemon (watcher + auto-compile)
+uv run compendium daemon start --menubar  # Start with macOS menu bar UI
+uv run compendium daemon install    # Install as macOS LaunchAgent
+uv run pytest tests/ -v             # Run tests (196 tests)
 uv run ruff check src/ tests/       # Lint
 ```
 
@@ -24,6 +27,7 @@ uv run ruff check src/ tests/       # Lint
 - **Pipeline**: src/compendium/pipeline/ - 6-step compilation, dependency graph, checkpoint/resume
 - **Q&A**: src/compendium/qa/ - engine, sessions, output (reports/slides/charts), feedback filing
 - **Ingestion**: src/compendium/ingest/ - file drop, PDF/OCR, web clip, Apple Books, dedup, watcher, media download
+- **Daemon**: src/compendium/daemon/ - batching engine, launchd service, macOS menu bar app
 - **Lint**: src/compendium/lint/ - broken links, orphans, staleness, coverage gaps
 - **Prompts**: prompts/*.md - version-controlled templates with {{variable}} interpolation
 
@@ -48,4 +52,5 @@ uv run ruff check src/ tests/       # Lint
 - `tests/test_media.py` - remote image scanning, download, URL localization
 - `tests/test_clip.py` - web page clipping, duplicate handling, image download
 - `tests/test_apple_books.py` - Apple Books extraction, export, roundtrip
+- `tests/test_daemon.py` - daemon engine, batching, cloud-only, plist, sync cache
 - `tests/test_gaps.py` - index verification, template operations

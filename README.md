@@ -273,14 +273,27 @@ uv run compendium ask "Summarize this for a team update" --output slides --file
 Open the project directory as an Obsidian vault. Install the Dataview plugin for
 queryable frontmatter tables.
 
-### 8. Watch for new files (optional)
+### 8. Start the background daemon (recommended)
 
 ```bash
-uv run compendium watch
+uv run compendium daemon start
 ```
 
-This monitors `raw/` and auto-ingests new files — works with Obsidian Web Clipper,
-OS automation (Hazel, Shortcuts), cloud sync, and voice transcriptions.
+The daemon watches `raw/` for new files, batches them (60-second debounce), auto-runs
+the compilation pipeline, and periodically polls Apple Books for new highlights. All LLM
+processing happens via cloud APIs (Anthropic, OpenAI, Gemini) — zero local compute.
+
+For a macOS menu bar UI with status icons and controls:
+
+```bash
+uv run compendium daemon start --menubar
+```
+
+To install as a LaunchAgent that starts automatically on boot:
+
+```bash
+uv run compendium daemon install
+```
 
 ## Main CLI Commands
 
@@ -295,6 +308,8 @@ uv run compendium ask
 uv run compendium lint
 uv run compendium watch
 uv run compendium download-media
+uv run compendium daemon start
+uv run compendium daemon install
 uv run compendium status
 uv run compendium usage
 uv run compendium config set-key
@@ -310,6 +325,7 @@ uv run compendium apple-books --book "Deep Work"
 uv run compendium ask "Turn this into a summary page" --output html --file
 uv run compendium lint --deep
 uv run compendium download-media --dry-run
+uv run compendium daemon start --menubar
 ```
 
 ## Running the Codebase Locally as a Developer

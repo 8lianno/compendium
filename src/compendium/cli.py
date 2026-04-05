@@ -24,6 +24,9 @@ console = Console()
 config_app = typer.Typer(help="Configure LLM providers and settings.")
 app.add_typer(config_app, name="config")
 
+daemon_app = typer.Typer(help="Background daemon — auto-ingest, compile, and Apple Books sync.")
+app.add_typer(daemon_app, name="daemon")
+
 
 def _get_wiki_fs(project_dir: Path | None = None) -> WikiFileSystem:
     """Get WikiFileSystem for the current or specified project directory."""
@@ -1093,3 +1096,84 @@ def config_show(
     """Show current configuration."""
     config = _get_config(project_dir)
     console.print_json(config.model_dump_json(indent=2))
+
+
+# -- daemon subcommands --
+
+
+@daemon_app.command("start")
+def daemon_start(
+    project_dir: Annotated[
+        Path | None, typer.Option("--dir", "-d", help="Project directory")
+    ] = None,
+    menubar: Annotated[
+        bool, typer.Option("--menubar", help="Launch with macOS menu bar UI")
+    ] = False,
+) -> None:
+    """Start the background daemon (foreground process)."""
+    from compendium.daemon.engine import DaemonEngine
+
+    wfs = _get_wiki_fs(project_dir)
+    config = _get_config(project_dir)
+
+    engine = DaemonEngine(
+        wfs,
+        debounce_seconds=config.daemon.debounce_seconds,
+        apple_books_poll_minutes=config.daemon.apple_books_poll_minutes,
+        cloud_only=config.daemon.cloud_only,
+        auto_compile=config.daemon.auto_compile,
+    )
+
+    if menubar:
+        from compendium.daemon.menubar import run_menubar
+
+        console.print("[bold]Starting Compendium menu bar app...[/bold]")
+        run_menubar(wfs, engine)
+    else:
+        console.print(
+            f"[bold]Daemon started[/bold] — watching {wfs.raw_dir}\n"
+            f"  Debounce: {config.daemon.debounce_seconds}s  |  "
+            f"Apple Books poll: {config.daemon.apple_books_poll_minutes}m  |  "
+            f"Cloud-only: {config.daemon.cloud_only}\n"
+            "  Press Ctrl+C to stop."
+        )
+        engine.start()
+
+
+@daemon_app.command("install")
+def daemon_install(
+    project_dir: Annotated[
+        Path | None, typer.Option("--dir", "-d", help="Project directory")
+    ] = None,
+) -> None:
+    """Install as a macOS LaunchAgent (auto-starts on boot)."""
+    from compendium.daemon.service import install
+
+    wfs = _get_wiki_fs(project_dir)
+    msg = install(wfs.root)
+    console.print(f"[green]{msg}[/green]")
+
+
+@daemon_app.command("uninstall")
+def daemon_uninstall() -> None:
+    """Uninstall the macOS LaunchAgent."""
+    from compendium.daemon.service import uninstall
+
+    msg = uninstall()
+    console.print(f"[yellow]{msg}[/yellow]")
+
+
+@daemon_app.command("status")
+def daemon_status() -> None:
+    """Check if the daemon LaunchAgent is installed and running."""
+    from compendium.daemon.service import is_installed, is_running
+
+    installed = is_installed()
+    running = is_running()
+
+    if not installed:
+        console.print("Daemon: [dim]not installed[/dim]")
+    elif running:
+        console.print("Daemon: [green]running[/green]")
+    else:
+        console.print("Daemon: [yellow]installed but not running[/yellow]")

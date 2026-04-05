@@ -50,6 +50,15 @@ class LintConfig(BaseModel):
     missing_data_web_search: bool = False
 
 
+class DaemonConfig(BaseModel):
+    """Background daemon settings."""
+
+    debounce_seconds: int = 60
+    apple_books_poll_minutes: int = 5
+    cloud_only: bool = True
+    auto_compile: bool = True
+
+
 class ProjectConfig(BaseModel):
     """Top-level project configuration."""
 
@@ -64,6 +73,7 @@ class CompendiumConfig(BaseModel):
     compilation: CompilationConfig = Field(default_factory=CompilationConfig)
     templates: TemplateConfig = Field(default_factory=TemplateConfig)
     lint: LintConfig = Field(default_factory=LintConfig)
+    daemon: DaemonConfig = Field(default_factory=DaemonConfig)
 
     @classmethod
     def load(cls, path: Path) -> CompendiumConfig:

@@ -28,6 +28,8 @@ dependencies = [
     "markdownify>=0.14",
     # File watcher
     "watchdog>=6",
+    # macOS menu bar
+    "rumps>=0.4",
 ]
 
 [project.optional-dependencies]

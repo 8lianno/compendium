@@ -102,12 +102,15 @@ def discover_books(container_path: Path | None = None) -> list[dict[str, str]]:
 def extract_highlights(
     asset_id: str | None = None,
     container_path: Path | None = None,
+    since_cocoa_timestamp: float | None = None,
 ) -> list[BookExport]:
     """Extract highlights and annotations from Apple Books.
 
     Args:
         asset_id: If given, only extract for this book. Otherwise extract all.
         container_path: Override the Apple Books container path (for testing).
+        since_cocoa_timestamp: If given, only return highlights created after this
+            Core Data timestamp (seconds since 2001-01-01).
 
     Returns:
         List of BookExport objects, one per book with highlights.
@@ -158,7 +161,7 @@ def extract_highlights(
     ann_conn.row_factory = sqlite3.Row
     try:
         placeholders = ",".join("?" for _ in book_map)
-        rows = ann_conn.execute(
+        query = (
             "SELECT ZANNOTATIONASSETID, ZANNOTATIONSELECTEDTEXT, "
             "ZANNOTATIONNOTE, ZFUTUREPROOFING5 AS CHAPTER, "
             "ZANNOTATIONSTYLE, ZANNOTATIONCREATIONDATE, "
@@ -166,9 +169,13 @@ def extract_highlights(
             "FROM ZAEANNOTATION "
             f"WHERE ZANNOTATIONASSETID IN ({placeholders}) "
             "AND ZANNOTATIONDELETED = 0 "
-            "ORDER BY ZANNOTATIONASSETID, ZPLLOCATIONRANGESTART",
-            list(book_map.keys()),
-        ).fetchall()
+        )
+        params: list = list(book_map.keys())
+        if since_cocoa_timestamp is not None:
+            query += "AND ZANNOTATIONCREATIONDATE > ? "
+            params.append(since_cocoa_timestamp)
+        query += "ORDER BY ZANNOTATIONASSETID, ZPLLOCATIONRANGESTART"
+        rows = ann_conn.execute(query, params).fetchall()
     except sqlite3.OperationalError:
         ann_conn.close()
         return []
@@ -300,3 +307,40 @@ def export_to_markdown(
     output_path.write_text(frontmatter.dumps(post))
 
     return output_path, f"Exported: {book.title} ({len(book.highlights)} highlights)"
+
+
+# -- Sync cache for incremental polling --
+
+_SYNC_CACHE_NAME = ".apple-books-sync.json"
+
+
+def _datetime_to_cocoa(dt: datetime) -> float:
+    """Convert a UTC datetime to Apple Core Data timestamp."""
+    return dt.timestamp() - 978307200
+
+
+def load_sync_cache(project_dir: Path) -> float | None:
+    """Load the last Apple Books sync timestamp (Core Data epoch).
+
+    Returns None if never synced.
+    """
+    import json
+
+    cache_path = project_dir / _SYNC_CACHE_NAME
+    if not cache_path.exists():
+        return None
+    try:
+        data = json.loads(cache_path.read_text())
+        return data.get("last_cocoa_timestamp")
+    except Exception:
+        return None
+
+
+def save_sync_cache(project_dir: Path) -> None:
+    """Save the current time as the last Apple Books sync timestamp."""
+    import json
+
+    cache_path = project_dir / _SYNC_CACHE_NAME
+    cache_path.write_text(
+        json.dumps({"last_cocoa_timestamp": _datetime_to_cocoa(datetime.now(UTC))})
+    )
