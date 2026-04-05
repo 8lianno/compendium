@@ -353,3 +353,58 @@ class TestDaemonConfig:
         assert config.daemon.debounce_seconds == 30
         assert config.daemon.apple_books_poll_minutes == 10
         assert config.daemon.cloud_only is False
+
+
+# -- Engine choice onboarding --
+
+
+class TestApplyEngineChoice:
+    def test_cloud_provider_updates_config(self, tmp_path: Path) -> None:
+        from compendium.core.config import CompendiumConfig
+        from compendium.daemon.menubar_entry import apply_engine_choice
+
+        # Create a default config
+        config = CompendiumConfig()
+        config_path = tmp_path / "compendium.toml"
+        config.save(config_path)
+
+        apply_engine_choice(config_path, "openai", model="gpt-4o")
+
+        loaded = CompendiumConfig.load(config_path)
+        assert loaded.models.default_provider == "openai"
+        assert loaded.models.compilation.provider == "openai"
+        assert loaded.models.compilation.model == "gpt-4o"
+        assert loaded.models.qa.provider == "openai"
+        assert loaded.models.lint.provider == "openai"
+        assert loaded.daemon.cloud_only is True  # unchanged for cloud
+
+    def test_ollama_sets_cloud_only_false(self, tmp_path: Path) -> None:
+        from compendium.core.config import CompendiumConfig
+        from compendium.daemon.menubar_entry import apply_engine_choice
+
+        config = CompendiumConfig()
+        config_path = tmp_path / "compendium.toml"
+        config.save(config_path)
+
+        apply_engine_choice(
+            config_path, "ollama", model="llama3", endpoint="http://localhost:11434"
+        )
+
+        loaded = CompendiumConfig.load(config_path)
+        assert loaded.models.default_provider == "ollama"
+        assert loaded.models.compilation.provider == "ollama"
+        assert loaded.models.compilation.endpoint == "http://localhost:11434"
+        assert loaded.daemon.cloud_only is False
+
+    def test_default_model_used_when_none(self, tmp_path: Path) -> None:
+        from compendium.core.config import CompendiumConfig
+        from compendium.daemon.menubar_entry import apply_engine_choice
+
+        config = CompendiumConfig()
+        config_path = tmp_path / "compendium.toml"
+        config.save(config_path)
+
+        apply_engine_choice(config_path, "anthropic")
+
+        loaded = CompendiumConfig.load(config_path)
+        assert loaded.models.compilation.model == "claude-sonnet-4-20250514"

@@ -344,3 +344,61 @@ def save_sync_cache(project_dir: Path) -> None:
     cache_path.write_text(
         json.dumps({"last_cocoa_timestamp": _datetime_to_cocoa(datetime.now(UTC))})
     )
+
+
+# -- Selective sync config --
+
+_BOOKS_CONFIG_NAME = ".apple-books-config.json"
+
+
+def load_books_config(project_dir: Path) -> dict[str, dict]:
+    """Load book selection config.
+
+    Returns {asset_id: {"title": str, "author": str, "enabled": bool}}.
+    """
+    import json
+
+    config_path = project_dir / _BOOKS_CONFIG_NAME
+    if not config_path.exists():
+        return {}
+    try:
+        data = json.loads(config_path.read_text())
+        return data.get("books", {})
+    except Exception:
+        return {}
+
+
+def save_books_config(project_dir: Path, books: dict[str, dict]) -> None:
+    """Save book selection config."""
+    import json
+
+    config_path = project_dir / _BOOKS_CONFIG_NAME
+    config_path.write_text(json.dumps({"version": 1, "books": books}, indent=2))
+
+
+def get_enabled_asset_ids(project_dir: Path) -> set[str] | None:
+    """Return set of enabled asset IDs, or None if no config exists.
+
+    None means "all enabled" (backward compatibility when no config file).
+    """
+    config = load_books_config(project_dir)
+    if not config:
+        return None
+    return {aid for aid, info in config.items() if info.get("enabled", True)}
+
+
+def find_source_for_book(raw_dir: Path, book_title: str) -> Path | None:
+    """Find the raw/ markdown file exported for a given book title."""
+    slug = slugify(f"{book_title}-highlights")
+    candidate = raw_dir / f"{slug}.md"
+    if candidate.exists():
+        return candidate
+    # Fallback: scan raw/ for matching book_title in frontmatter
+    for md_file in raw_dir.glob("*.md"):
+        try:
+            post = frontmatter.load(str(md_file))
+            if post.metadata.get("book_title") == book_title:
+                return md_file
+        except Exception:
+            continue
+    return None

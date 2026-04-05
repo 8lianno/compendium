@@ -15,7 +15,7 @@ uv run compendium download-media    # Download remote images for offline access
 uv run compendium daemon start      # Start background daemon (watcher + auto-compile)
 uv run compendium daemon start --menubar  # Start with macOS menu bar UI
 uv run compendium daemon install    # Install as macOS LaunchAgent
-uv run pytest tests/ -v             # Run tests (196 tests)
+uv run pytest tests/ -v             # Run tests (224 tests)
 uv run ruff check src/ tests/       # Lint
 ```
 
@@ -24,7 +24,7 @@ uv run ruff check src/ tests/       # Lint
 - **CLI**: Typer (src/compendium/cli.py) - 16 commands
 - **Core**: src/compendium/core/ - config, frontmatter, WikiFileSystem, wikilinks
 - **LLM**: src/compendium/llm/ - provider protocol, Anthropic/OpenAI/Ollama, router, token tracker
-- **Pipeline**: src/compendium/pipeline/ - 6-step compilation, dependency graph, checkpoint/resume
+- **Pipeline**: src/compendium/pipeline/ - 6-step compilation, dependency graph, checkpoint/resume, archive/restore
 - **Q&A**: src/compendium/qa/ - engine, sessions, output (reports/slides/charts), feedback filing
 - **Ingestion**: src/compendium/ingest/ - file drop, PDF/OCR, web clip, Apple Books, dedup, watcher, media download
 - **Daemon**: src/compendium/daemon/ - batching engine, launchd service, macOS menu bar app
@@ -51,6 +51,7 @@ uv run ruff check src/ tests/       # Lint
 - `tests/test_watch.py` - file watcher, debounce, filtering, auto-ingest
 - `tests/test_media.py` - remote image scanning, download, URL localization
 - `tests/test_clip.py` - web page clipping, duplicate handling, image download
-- `tests/test_apple_books.py` - Apple Books extraction, export, roundtrip
-- `tests/test_daemon.py` - daemon engine, batching, cloud-only, plist, sync cache
+- `tests/test_apple_books.py` - Apple Books extraction, export, roundtrip, selective sync config
+- `tests/test_daemon.py` - daemon engine, batching, cloud-only, plist, sync cache, engine choice
+- `tests/test_archive.py` - source archive/restore, dependency cascade, multi-source patching
 - `tests/test_gaps.py` - index verification, template operations

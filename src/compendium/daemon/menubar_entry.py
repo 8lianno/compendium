@@ -18,6 +18,13 @@ _PREFS_PATH = Path.home() / ".compendium-app.json"
 
 logger = logging.getLogger("compendium.app")
 
+_DEFAULT_MODELS: dict[str, str] = {
+    "anthropic": "claude-sonnet-4-20250514",
+    "openai": "gpt-4o",
+    "gemini": "gemini-2.0-flash",
+    "ollama": "llama3",
+}
+
 
 def _load_prefs() -> dict:
     """Load app preferences (project_dir, etc.)."""
@@ -134,6 +141,117 @@ def _first_run_setup() -> Path | None:
     return chosen
 
 
+def apply_engine_choice(
+    config_path: Path,
+    provider: str,
+    model: str | None = None,
+    endpoint: str | None = None,
+    api_key: str | None = None,
+) -> None:
+    """Apply user's engine choice to compendium.toml and Keychain.
+
+    Pure function — no UI. Testable directly.
+    """
+    from compendium.core.config import CompendiumConfig, ModelConfig
+
+    config = CompendiumConfig.load(config_path)
+    resolved_model = model or _DEFAULT_MODELS.get(provider, "")
+
+    mc = ModelConfig(provider=provider, model=resolved_model, endpoint=endpoint)
+    config.models.default_provider = provider
+    config.models.compilation = mc
+    config.models.qa = ModelConfig(provider=provider, model=resolved_model, endpoint=endpoint)
+    config.models.lint = ModelConfig(provider=provider, model=resolved_model, endpoint=endpoint)
+
+    if provider == "ollama":
+        config.daemon.cloud_only = False
+
+    config.save(config_path)
+
+    if api_key and provider != "ollama":
+        from compendium.llm.factory import set_api_key
+
+        set_api_key(provider, api_key)
+
+
+def _engine_choice_setup(project_dir: Path) -> None:
+    """Ask user to choose LLM engine during first-run setup."""
+    import rumps
+
+    # Step 1: Cloud vs Local
+    choice = rumps.alert(
+        title="Choose Your AI Engine",
+        message=(
+            "How do you want to power Compendium?\n\n"
+            "Cloud API — uses Anthropic, OpenAI, or Gemini (requires API key)\n"
+            "Local — uses Ollama running on your Mac (no API key needed)"
+        ),
+        ok="Cloud API",
+        cancel="Local (Ollama)",
+    )
+
+    config_path = project_dir / "compendium.toml"
+
+    if choice == 1:  # Cloud API
+        # Step 2: Which cloud provider
+        resp = rumps.Window(
+            title="Cloud Provider",
+            message="Which provider?\n\nType: anthropic, openai, or gemini",
+            ok="Next",
+            cancel="Skip (configure later)",
+            dimensions=(300, 24),
+            default_text="anthropic",
+        ).run()
+
+        if not resp.clicked:
+            return
+
+        provider = resp.text.strip().lower()
+        if provider not in ("anthropic", "openai", "gemini"):
+            provider = "anthropic"
+
+        # Step 3: API key
+        key_resp = rumps.Window(
+            title=f"API Key: {provider.title()}",
+            message=f"Paste your {provider.title()} API key:",
+            ok="Save",
+            cancel="Skip",
+            dimensions=(400, 24),
+        ).run()
+
+        api_key = key_resp.text.strip() if key_resp.clicked else None
+        apply_engine_choice(config_path, provider, api_key=api_key)
+
+        if api_key:
+            rumps.notification(
+                "Compendium",
+                f"{provider.title()} configured",
+                "API key saved to macOS Keychain.",
+            )
+    else:  # Local / Ollama
+        resp = rumps.Window(
+            title="Ollama Model",
+            message="Which Ollama model?\n\n(Make sure Ollama is running)",
+            ok="Save",
+            cancel="Use default",
+            dimensions=(300, 24),
+            default_text="llama3",
+        ).run()
+
+        model_name = resp.text.strip() if resp.clicked and resp.text.strip() else "llama3"
+        apply_engine_choice(
+            config_path,
+            "ollama",
+            model=model_name,
+            endpoint="http://localhost:11434",
+        )
+        rumps.notification(
+            "Compendium",
+            "Ollama configured",
+            f"Using model: {model_name}",
+        )
+
+
 def _offer_login_item() -> None:
     """Offer to add Compendium to macOS Login Items (AC 4)."""
     import rumps
@@ -209,24 +327,27 @@ def main() -> None:
 
     project_dir = _find_project_dir()
 
-    # First-run setup if no project found
-    if project_dir is None:
-        project_dir = _first_run_setup()
-        if project_dir is None:
-            return  # User cancelled
-
-        # Offer Login Items on first run
-        _offer_login_item()
-
     from compendium.core.config import CompendiumConfig
     from compendium.core.wiki_fs import WikiFileSystem
     from compendium.daemon.engine import DaemonEngine
     from compendium.daemon.menubar import run_menubar
 
-    # Initialize project if it doesn't exist yet
+    # First-run setup if no project found
+    is_first_run = project_dir is None
+    if is_first_run:
+        project_dir = _first_run_setup()
+        if project_dir is None:
+            return  # User cancelled
+
+    # Initialize project if it doesn't exist yet (must happen before engine choice)
     wfs = WikiFileSystem(project_dir)
     if not (project_dir / "compendium.toml").exists():
         wfs.init_project(name="My Knowledge Wiki")
+
+    # First-run: ask engine choice, then offer Login Items
+    if is_first_run:
+        _engine_choice_setup(project_dir)
+        _offer_login_item()
 
     config = CompendiumConfig.load(project_dir / "compendium.toml")
 

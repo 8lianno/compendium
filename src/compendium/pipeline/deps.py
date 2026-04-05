@@ -63,6 +63,7 @@ class DependencyGraph(BaseModel):
     sources: dict[str, SourceEntry] = Field(default_factory=dict)
     articles: dict[str, ArticleEntry] = Field(default_factory=dict)
     concepts: dict[str, ConceptEntry] = Field(default_factory=dict)
+    archived_sources: dict[str, SourceEntry] = Field(default_factory=dict)
     meta: DepsMetadata = Field(default_factory=DepsMetadata)
 
     @classmethod

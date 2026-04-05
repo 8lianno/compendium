@@ -70,6 +70,9 @@ class CompendiumMenuBar(rumps.App):
         self._status_item.set_callback(None)
         self._toggle_item = rumps.MenuItem("Pause Watcher", callback=self._toggle_watcher)
         self._sync_item = rumps.MenuItem("Sync Now", callback=self._force_sync)
+        self._books_menu = rumps.MenuItem("Manage Apple Books")
+        self._books_refresh = rumps.MenuItem("Refresh List", callback=self._refresh_books)
+        self._books_menu.add(self._books_refresh)
         self._logs_item = rumps.MenuItem("View Recent Activity", callback=self._show_logs)
         self._settings_item = rumps.MenuItem("Settings", callback=self._show_settings)
         self._quit_item = rumps.MenuItem("Quit Compendium", callback=self._quit)
@@ -79,12 +82,16 @@ class CompendiumMenuBar(rumps.App):
             None,  # separator
             self._toggle_item,
             self._sync_item,
+            self._books_menu,
             None,
             self._logs_item,
             self._settings_item,
             None,
             self._quit_item,
         ]
+
+        # Populate books submenu on launch
+        self._refresh_books_submenu()
 
     # -- State change callback (called from engine thread) --
 
@@ -182,6 +189,133 @@ class CompendiumMenuBar(rumps.App):
                     f"{provider.title()} key saved",
                     "Stored securely in macOS Keychain.",
                 )
+
+
+    # -- Apple Books selective sync --
+
+    def _refresh_books(self, _sender: rumps.MenuItem) -> None:
+        """Refresh the Apple Books submenu."""
+        self._refresh_books_submenu()
+        rumps.notification("Compendium", "Books list refreshed", "")
+
+    def _refresh_books_submenu(self) -> None:
+        """Rebuild the books submenu from discover_books() + config."""
+        from compendium.ingest.apple_books import (
+            discover_books,
+            load_books_config,
+            save_books_config,
+        )
+
+        books = discover_books()
+        config = load_books_config(self.wfs.root)
+
+        # Clear existing book items (keep Refresh at the end)
+        keys_to_remove = [
+            k for k in self._books_menu
+            if k not in ("Refresh List",) and k != self._books_refresh
+        ]
+        for k in keys_to_remove:
+            del self._books_menu[k]
+
+        if not books:
+            empty = rumps.MenuItem("No annotated books found", callback=None)
+            empty.set_callback(None)
+            self._books_menu.insert_before(self._books_refresh, empty)
+            return
+
+        # Ensure all discovered books have a config entry
+        updated = False
+        for book in books:
+            aid = book["asset_id"]
+            if aid not in config:
+                config[aid] = {
+                    "title": book["title"],
+                    "author": book["author"],
+                    "enabled": True,
+                }
+                updated = True
+
+        if updated:
+            save_books_config(self.wfs.root, config)
+
+        # Add separator before Refresh
+        self._books_menu.insert_before(self._books_refresh, None)
+
+        # Add a menu item per book with checkmark state
+        for book in books:
+            aid = book["asset_id"]
+            enabled = config.get(aid, {}).get("enabled", True)
+            label = f"{book['title']} \u2014 {book['author']}"
+            item = rumps.MenuItem(label, callback=self._toggle_book)
+            item.state = 1 if enabled else 0
+            # Store asset_id on the item for the callback
+            item._compendium_asset_id = aid  # type: ignore[attr-defined]
+            item._compendium_title = book["title"]  # type: ignore[attr-defined]
+            self._books_menu.insert_before(self._books_refresh, item)
+
+    def _toggle_book(self, sender: rumps.MenuItem) -> None:
+        """Toggle a book's sync state and archive/restore accordingly."""
+        from compendium.ingest.apple_books import (
+            find_source_for_book,
+            load_books_config,
+            save_books_config,
+        )
+
+        asset_id = sender._compendium_asset_id  # type: ignore[attr-defined]
+        book_title = sender._compendium_title  # type: ignore[attr-defined]
+        new_enabled = not bool(sender.state)
+
+        # Update config
+        config = load_books_config(self.wfs.root)
+        if asset_id in config:
+            config[asset_id]["enabled"] = new_enabled
+            save_books_config(self.wfs.root, config)
+
+        sender.state = 1 if new_enabled else 0
+
+        # Archive or restore in background
+        source = find_source_for_book(self.wfs.raw_dir, book_title)
+        if source and not new_enabled:
+            rel = str(source.relative_to(self.wfs.root))
+            threading.Thread(
+                target=self._run_archive, args=(rel, book_title), daemon=True
+            ).start()
+        elif not source and new_enabled:
+            # Check if it's in the archive
+            from compendium.ingest.file_drop import slugify
+
+            slug = slugify(f"{book_title}-highlights")
+            archived = self.wfs.archive_sources_dir / f"{slug}.md"
+            if archived.exists():
+                rel = f"raw/{slug}.md"
+                threading.Thread(
+                    target=self._run_restore, args=(rel, book_title), daemon=True
+                ).start()
+
+    def _run_archive(self, source_rel: str, title: str) -> None:
+        from compendium.pipeline.archive import archive_source
+
+        result = archive_source(self.wfs, source_rel)
+        if result.sources_moved:
+            rumps.notification(
+                "Compendium",
+                f"Archived: {title}",
+                f"{len(result.articles_archived)} article(s) archived, "
+                f"{len(result.articles_patched)} patched",
+            )
+            self.engine._add_log(f"Archived: {title}")
+
+    def _run_restore(self, source_rel: str, title: str) -> None:
+        from compendium.pipeline.archive import restore_source
+
+        result = restore_source(self.wfs, source_rel)
+        if result.sources_moved:
+            rumps.notification(
+                "Compendium",
+                f"Restored: {title}",
+                f"{len(result.articles_restored)} article(s) restored",
+            )
+            self.engine._add_log(f"Restored: {title}")
 
 
 def _parse_recent_log_entries(wfs: WikiFileSystem, *, limit: int = 5) -> list[str]:

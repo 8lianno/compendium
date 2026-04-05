@@ -248,3 +248,63 @@ class TestIntegrationRoundtrip:
         # Verify all files exist
         md_files = list(raw_dir.glob("*.md"))
         assert len(md_files) == 2
+
+
+# -- Books config (selective sync) --
+
+
+class TestBooksConfig:
+    def test_load_returns_empty_when_no_file(self, tmp_path: Path) -> None:
+        from compendium.ingest.apple_books import load_books_config
+
+        assert load_books_config(tmp_path) == {}
+
+    def test_save_and_load_roundtrip(self, tmp_path: Path) -> None:
+        from compendium.ingest.apple_books import load_books_config, save_books_config
+
+        books = {
+            "BOOK001": {"title": "Deep Work", "author": "Cal Newport", "enabled": True},
+            "BOOK002": {"title": "Fiction Novel", "author": "Nobody", "enabled": False},
+        }
+        save_books_config(tmp_path, books)
+        loaded = load_books_config(tmp_path)
+        assert loaded["BOOK001"]["enabled"] is True
+        assert loaded["BOOK002"]["enabled"] is False
+
+    def test_get_enabled_returns_none_when_no_config(self, tmp_path: Path) -> None:
+        from compendium.ingest.apple_books import get_enabled_asset_ids
+
+        assert get_enabled_asset_ids(tmp_path) is None
+
+    def test_get_enabled_filters_correctly(self, tmp_path: Path) -> None:
+        from compendium.ingest.apple_books import get_enabled_asset_ids, save_books_config
+
+        save_books_config(tmp_path, {
+            "A": {"title": "A", "author": "X", "enabled": True},
+            "B": {"title": "B", "author": "X", "enabled": False},
+            "C": {"title": "C", "author": "X", "enabled": True},
+        })
+        enabled = get_enabled_asset_ids(tmp_path)
+        assert enabled == {"A", "C"}
+
+    def test_find_source_for_book(self, tmp_path: Path) -> None:
+        import frontmatter as fm
+
+        from compendium.ingest.apple_books import find_source_for_book
+
+        raw_dir = tmp_path / "raw"
+        raw_dir.mkdir()
+
+        post = fm.Post("# Highlights", book_title="Deep Work")
+        (raw_dir / "deep-work-highlights.md").write_text(fm.dumps(post))
+
+        found = find_source_for_book(raw_dir, "Deep Work")
+        assert found is not None
+        assert found.name == "deep-work-highlights.md"
+
+    def test_find_source_returns_none(self, tmp_path: Path) -> None:
+        from compendium.ingest.apple_books import find_source_for_book
+
+        raw_dir = tmp_path / "raw"
+        raw_dir.mkdir()
+        assert find_source_for_book(raw_dir, "Nonexistent Book") is None

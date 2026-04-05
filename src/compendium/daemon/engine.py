@@ -324,12 +324,20 @@ class DaemonEngine:
             from compendium.ingest.apple_books import (
                 export_to_markdown,
                 extract_highlights,
+                get_enabled_asset_ids,
                 load_sync_cache,
                 save_sync_cache,
             )
 
             since = load_sync_cache(self.wfs.root)
             exports = extract_highlights(since_cocoa_timestamp=since)
+            if not exports:
+                return
+
+            # Filter by user's book selection (None = all enabled)
+            enabled = get_enabled_asset_ids(self.wfs.root)
+            if enabled is not None:
+                exports = [b for b in exports if b.asset_id in enabled]
             if not exports:
                 return
 

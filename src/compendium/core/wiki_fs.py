@@ -92,6 +92,18 @@ class WikiFileSystem:
         return self.root / "output" / "charts"
 
     @property
+    def archive_dir(self) -> Path:
+        return self.root / "archive"
+
+    @property
+    def archive_sources_dir(self) -> Path:
+        return self.root / "archive" / "sources"
+
+    @property
+    def archive_wiki_dir(self) -> Path:
+        return self.root / "archive" / "wiki"
+
+    @property
     def deps_path(self) -> Path:
         return self.root / "wiki" / ".deps.json"
 
@@ -128,6 +140,8 @@ class WikiFileSystem:
             self.reports_dir,
             self.slides_dir,
             self.charts_dir,
+            self.archive_sources_dir,
+            self.archive_wiki_dir,
         ]
         for d in dirs:
             d.mkdir(parents=True, exist_ok=True)
