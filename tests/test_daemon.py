@@ -460,3 +460,53 @@ class TestOllamaDiscovery:
             models = list_ollama_models()
 
         assert models == []
+
+
+# -- Project dir normalization --
+
+
+class TestNormalizeProjectDir:
+    """Test _normalize_project_dir prevents raw/raw double nesting."""
+
+    def test_raw_subfolder_of_existing_project(self, tmp_path: Path) -> None:
+        """If user selects raw/ inside an existing project, use the parent."""
+        from compendium.daemon.menubar_entry import _normalize_project_dir
+
+        project = tmp_path / "my-vault"
+        project.mkdir()
+        (project / "compendium.toml").write_text("[project]\nname = 'test'\n")
+        raw = project / "raw"
+        raw.mkdir()
+
+        assert _normalize_project_dir(raw) == project
+
+    def test_raw_folder_without_config(self, tmp_path: Path) -> None:
+        """If user selects a folder named 'raw' with no compendium.toml, use parent."""
+        from compendium.daemon.menubar_entry import _normalize_project_dir
+
+        parent = tmp_path / "docs"
+        parent.mkdir()
+        raw = parent / "raw"
+        raw.mkdir()
+
+        assert _normalize_project_dir(raw) == parent
+
+    def test_normal_folder_unchanged(self, tmp_path: Path) -> None:
+        """A normal folder name is returned as-is."""
+        from compendium.daemon.menubar_entry import _normalize_project_dir
+
+        vault = tmp_path / "my-vault"
+        vault.mkdir()
+
+        assert _normalize_project_dir(vault) == vault
+
+    def test_folder_named_raw_with_own_config(self, tmp_path: Path) -> None:
+        """If a folder named 'raw' has its own compendium.toml, it IS the project root."""
+        from compendium.daemon.menubar_entry import _normalize_project_dir
+
+        raw = tmp_path / "raw"
+        raw.mkdir()
+        (raw / "compendium.toml").write_text("[project]\nname = 'raw project'\n")
+
+        # Has its own config — treat it as a legitimate project root
+        assert _normalize_project_dir(raw) == raw

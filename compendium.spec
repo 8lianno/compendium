@@ -54,6 +54,8 @@ a = Analysis(
         "compendium.llm.anthropic",
         "compendium.llm.openai_provider",
         "compendium.llm.ollama",
+        "compendium.llm.openrouter",
+        "compendium.llm.gemini",
         "compendium.llm.router",
         "compendium.llm.tokens",
         "compendium.llm.prompts",

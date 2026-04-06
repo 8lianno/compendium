@@ -123,6 +123,9 @@ class DaemonEngine:
         logger.info("Daemon started — watching %s", self.wfs.raw_dir)
         self._add_log("Daemon started")
 
+        # Scan for files that arrived while the daemon was stopped
+        self._catch_up_scan()
+
         try:
             self._main_loop()
         finally:
@@ -243,6 +246,25 @@ class DaemonEngine:
         if batch:
             self._process_batch_events(batch)
 
+    @staticmethod
+    def _is_already_ingested(path: Path) -> bool:
+        """Check if a markdown file already has Compendium frontmatter.
+
+        Files with ``content_hash`` in frontmatter were produced by a prior
+        ``ingest_file()`` call (or Apple Books export) and must not be
+        re-ingested — doing so creates duplicate ``-2``, ``-3`` files in an
+        infinite watcher loop.
+        """
+        if not str(path).lower().endswith(".md"):
+            return False
+        try:
+            import frontmatter as fm
+
+            post = fm.load(str(path))
+            return "content_hash" in post.metadata
+        except Exception:
+            return False
+
     def _process_batch_events(self, batch: list[BatchEvent]) -> None:
         """Ingest a batch of files, then optionally run incremental update."""
         self._set_state(DaemonState.PROCESSING)
@@ -254,6 +276,16 @@ class DaemonEngine:
             path = Path(event.path)
             if not path.exists():
                 continue
+
+            # Skip files that already have Compendium frontmatter — they were
+            # already ingested (or written by a previous ingest_file call).
+            # Just mark them for compilation.
+            if self._is_already_ingested(path):
+                ingested_paths.append(path)
+                logger.info("Already ingested, queued for compile: %s", path.name)
+                self._add_log(f"New source detected: {path.name}")
+                continue
+
             try:
                 result = ingest_file(
                     path,
@@ -279,7 +311,7 @@ class DaemonEngine:
                 logger.exception("Ingest error for %s", path)
                 self._add_log(f"Error ingesting {path.name}: {exc}")
 
-        # Auto-compile if we ingested anything
+        # Auto-compile if we have new sources
         if ingested_paths and self.auto_compile:
             self._run_incremental_update()
 

@@ -47,7 +47,12 @@ class OllamaProvider:
     ) -> None:
         self._model = model
         self._endpoint = endpoint.rstrip("/")
-        self._client = httpx.AsyncClient(base_url=self._endpoint, timeout=120.0)
+        # Local models can be slow, especially large ones (30B+).
+        # Use a generous timeout: 10 minutes for read, 30s for connect.
+        self._client = httpx.AsyncClient(
+            base_url=self._endpoint,
+            timeout=httpx.Timeout(connect=30.0, read=600.0, write=30.0, pool=30.0),
+        )
 
     @property
     def name(self) -> str:

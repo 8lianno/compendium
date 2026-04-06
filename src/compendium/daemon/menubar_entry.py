@@ -21,7 +21,9 @@ logger = logging.getLogger("compendium.app")
 _DEFAULT_MODELS: dict[str, str] = {
     "anthropic": "claude-sonnet-4-20250514",
     "openai": "gpt-4o",
-    "gemini": "gemini-2.0-flash",
+    "gemini": "gemini-2.5-flash",
+    "google-ai-studio": "gemini-2.5-flash",
+    "openrouter": "anthropic/claude-sonnet-4",
     "ollama": "llama3",
 }
 
@@ -54,7 +56,7 @@ def _find_project_dir() -> Path | None:
     prefs = _load_prefs()
     saved = prefs.get("project_dir")
     if saved:
-        p = Path(saved)
+        p = _normalize_project_dir(Path(saved))
         if (p / "compendium.toml").exists():
             return p
 
@@ -128,6 +130,25 @@ def _bring_to_front() -> None:
         pass
 
 
+def _normalize_project_dir(chosen: Path) -> Path:
+    """Ensure the chosen path is a project root, not a raw/ subfolder.
+
+    If the user selected a folder named 'raw/' (either from an existing
+    project or a standalone sources folder), use the parent as the
+    project root so that WikiFileSystem doesn't create raw/raw/.
+    """
+    if chosen.name != "raw":
+        return chosen
+
+    # If this folder already has its own compendium.toml, it IS the project root
+    if (chosen / "compendium.toml").exists():
+        return chosen
+
+    # raw/ subfolder of an existing project, or standalone sources folder —
+    # use the parent as the project root
+    return chosen.parent
+
+
 def _first_run_setup() -> Path | None:
     """Run first-time setup: ask user to pick a vault folder."""
     import rumps
@@ -146,6 +167,8 @@ def _first_run_setup() -> Path | None:
     chosen = _ask_for_folder()
     if chosen is None:
         return None
+
+    chosen = _normalize_project_dir(chosen)
 
     # Save preference
     _save_prefs({"project_dir": str(chosen)})
@@ -209,7 +232,11 @@ def _engine_choice_setup(project_dir: Path) -> None:
         # Step 2: Which cloud provider
         resp = rumps.Window(
             title="Cloud Provider",
-            message="Which provider?\n\nType: anthropic, openai, or gemini",
+            message=(
+                "Which provider?\n\n"
+                "Type: anthropic, openai, gemini,\n"
+                "      openrouter, or google-ai-studio"
+            ),
             ok="Next",
             cancel="Skip (configure later)",
             dimensions=(300, 24),
@@ -220,7 +247,7 @@ def _engine_choice_setup(project_dir: Path) -> None:
             return
 
         provider = resp.text.strip().lower()
-        if provider not in ("anthropic", "openai", "gemini"):
+        if provider not in ("anthropic", "openai", "gemini", "openrouter", "google-ai-studio"):
             provider = "anthropic"
 
         # Step 3: API key

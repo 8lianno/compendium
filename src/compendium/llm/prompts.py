@@ -3,10 +3,15 @@
 from __future__ import annotations
 
 import re
+import sys
 from pathlib import Path
 
 # Default prompts directory (shipped with package)
-_PACKAGE_PROMPTS_DIR = Path(__file__).parent.parent.parent.parent / "prompts"
+if getattr(sys, "frozen", False) and hasattr(sys, "_MEIPASS"):
+    # Running inside PyInstaller bundle — prompts are at {_MEIPASS}/prompts/
+    _PACKAGE_PROMPTS_DIR = Path(sys._MEIPASS) / "prompts"
+else:
+    _PACKAGE_PROMPTS_DIR = Path(__file__).parent.parent.parent.parent / "prompts"
 
 
 class PromptTemplate:

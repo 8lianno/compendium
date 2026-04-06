@@ -10,6 +10,7 @@ import keyring
 from compendium.llm.anthropic import AnthropicProvider
 from compendium.llm.ollama import OllamaProvider
 from compendium.llm.openai_provider import OpenAIProvider
+from compendium.llm.openrouter import OpenRouterProvider
 from compendium.llm.router import ModelRouter
 
 if TYPE_CHECKING:
@@ -35,7 +36,7 @@ def delete_api_key(provider: str) -> None:
         keyring.delete_password(KEYRING_SERVICE, provider)
 
 
-CLOUD_PROVIDERS = {"anthropic", "openai", "gemini"}
+CLOUD_PROVIDERS = {"anthropic", "openai", "gemini", "openrouter", "google-ai-studio"}
 
 
 def create_provider(
@@ -76,10 +77,14 @@ def create_provider(
         endpoint = model_config.endpoint or "http://localhost:11434"
         return OllamaProvider(model=model_config.model, endpoint=endpoint)
 
-    if provider_name == "gemini":
-        api_key = get_api_key("gemini")
+    if provider_name == "gemini" or provider_name == "google-ai-studio":
+        key_name = "gemini" if provider_name == "gemini" else "google-ai-studio"
+        api_key = get_api_key(key_name)
+        # Fall back: google-ai-studio and gemini share the same API
         if not api_key:
-            msg = "No API key found for Gemini. Run: compendium config set-key gemini"
+            api_key = get_api_key("gemini" if key_name != "gemini" else "google-ai-studio")
+        if not api_key:
+            msg = f"No API key found. Run: compendium config set-key {key_name}"
             raise ValueError(msg)
         try:
             from compendium.llm.gemini import GeminiProvider
@@ -90,7 +95,15 @@ def create_provider(
         msg = "Gemini requires google-genai SDK. Install with: uv pip install google-genai"
         raise ValueError(msg)
 
-    msg = f"Unknown provider: {provider_name}. Supported: anthropic, openai, ollama, gemini"
+    if provider_name == "openrouter":
+        api_key = get_api_key("openrouter")
+        if not api_key:
+            msg = "No API key found for OpenRouter. Run: compendium config set-key openrouter"
+            raise ValueError(msg)
+        return OpenRouterProvider(api_key=api_key, model=model_config.model)
+
+    supported = "anthropic, openai, ollama, gemini, openrouter, google-ai-studio"
+    msg = f"Unknown provider: {provider_name}. Supported: {supported}"
     raise ValueError(msg)
 
 

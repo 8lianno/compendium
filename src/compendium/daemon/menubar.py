@@ -45,7 +45,7 @@ _STATUS_LABELS: dict[DaemonState, str] = {
 }
 
 # Providers that can be configured via the Settings menu
-_CONFIGURABLE_PROVIDERS = ("anthropic", "openai", "gemini")
+_CONFIGURABLE_PROVIDERS = ("anthropic", "openai", "gemini", "openrouter", "google-ai-studio")
 
 
 class CompendiumMenuBar(rumps.App):

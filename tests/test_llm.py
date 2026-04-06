@@ -392,6 +392,42 @@ class TestProviderFactory:
         with pytest.raises(ValueError, match="Unknown provider"):
             create_provider(mc)
 
+    def test_create_openrouter_with_key(self) -> None:
+        from compendium.llm.factory import create_provider
+
+        with patch("compendium.llm.factory.get_api_key", return_value="sk-or-test"):
+            mc = ModelConfig(provider="openrouter", model="anthropic/claude-sonnet-4")
+            provider = create_provider(mc)
+            assert provider.name == "openrouter"
+            assert provider.model_name == "anthropic/claude-sonnet-4"
+
+    def test_create_openrouter_missing_key(self) -> None:
+        from compendium.llm.factory import create_provider
+
+        with patch("compendium.llm.factory.get_api_key", return_value=None):
+            mc = ModelConfig(provider="openrouter", model="anthropic/claude-sonnet-4")
+            with pytest.raises(ValueError, match="No API key"):
+                create_provider(mc)
+
+    def test_google_ai_studio_alias_routes_to_gemini(self) -> None:
+        """google-ai-studio should attempt GeminiProvider (same API)."""
+        from compendium.llm.factory import create_provider
+
+        with patch("compendium.llm.factory.get_api_key", return_value="test-key"):
+            mc = ModelConfig(provider="google-ai-studio", model="gemini-2.5-flash")
+            try:
+                provider = create_provider(mc)
+                assert provider.name == "gemini"
+            except ValueError as e:
+                # google-genai SDK not installed — that's fine, it tried
+                assert "google-genai" in str(e)
+
+    def test_cloud_providers_includes_new(self) -> None:
+        from compendium.llm.factory import CLOUD_PROVIDERS
+
+        assert "openrouter" in CLOUD_PROVIDERS
+        assert "google-ai-studio" in CLOUD_PROVIDERS
+
     def test_create_router(self) -> None:
         from compendium.llm.factory import create_router
 
