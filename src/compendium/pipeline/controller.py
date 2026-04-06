@@ -689,7 +689,7 @@ def _write_source_summary_pages(base_dir: Path, summaries: list[dict]) -> None:
         source_id = str(summary.get("source", "unknown"))
         title = str(summary.get("title", source_id))
         body = f"---\ntitle: \"Source: {title}\"\nid: \"source-{source_id}\"\n"
-        body += "category: sources\norigin: compilation\n---\n\n"
+        body += "type: source-summary\ncategory: sources\norigin: compilation\n---\n\n"
         body += f"# {title}\n\n## Summary\n{summary.get('summary', '')}\n\n"
 
         claims = summary.get("claims", [])

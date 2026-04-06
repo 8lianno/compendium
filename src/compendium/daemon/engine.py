@@ -270,6 +270,9 @@ class DaemonEngine:
                         f"## [{_now_date()}] ingest | {path.name}\n\n"
                         f"- event: daemon-batch\n- result: {result.message}\n"
                     )
+                elif result.duplicate_of:
+                    self._add_log(f"Duplicate skipped: {path.name}")
+                    logger.debug("Duplicate skipped: %s (of %s)", path, result.duplicate_of)
             except Exception as exc:
                 self.stats.errors += 1
                 self.stats.last_error = str(exc)

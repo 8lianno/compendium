@@ -78,9 +78,12 @@ class WikiArticleFrontmatter(BaseModel):
 
     title: str
     id: str
+    type: str = "article"
     category: str = ""
     tags: list[str] = Field(default_factory=list)
+    aliases: list[str] = Field(default_factory=list)
     sources: list[SourceReference] = Field(default_factory=list)
+    source_urls: list[str] = Field(default_factory=list)
     origin: ArticleOrigin = ArticleOrigin.COMPILATION
     created_at: datetime = Field(default_factory=datetime.now)
     updated_at: datetime = Field(default_factory=datetime.now)

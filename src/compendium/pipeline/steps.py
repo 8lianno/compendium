@@ -277,10 +277,26 @@ async def step_generate_articles(
             slug = re.sub(r"[^\w\s-]", "", name.lower())
             slug = re.sub(r"[\s_]+", "-", slug).strip("-")
             source_refs = [f'  - ref: "raw/{s.get("source", "")}.md"' for s in relevant_summaries]
+            # Collect source URLs for Dataview
+            source_urls = [
+                s.get("source_url", "")
+                for s in relevant_summaries
+                if s.get("source_url")
+            ]
+            url_lines = "".join(f"  - {u}\n" for u in source_urls)
+            # Collect aliases from concept taxonomy
+            alias_lines = "".join(f"  - {a}\n" for a in aliases) if aliases else ""
             fm = (
                 f'---\ntitle: "{name}"\nid: "{slug}"\n'
+                f'type: "concept"\n'
                 f'category: "{category}"\n'
-                f"sources:\n" + "\n".join(source_refs) + "\n"
+            )
+            if alias_lines:
+                fm += f"aliases:\n{alias_lines}"
+            fm += "sources:\n" + "\n".join(source_refs) + "\n"
+            if url_lines:
+                fm += f"source_urls:\n{url_lines}"
+            fm += (
                 f"origin: compilation\nstatus: published\n"
                 f"word_count: {len(article_content.split())}\n---\n\n"
             )

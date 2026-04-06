@@ -31,4 +31,6 @@ Related concepts: {{related_concepts}}
 
 ## Output Format
 Output the complete article as markdown with YAML frontmatter. The frontmatter must include:
-- title, category, sources (list of refs), word_count, concepts (list of tags)
+- title, type (always "concept"), category, sources (list of refs), word_count, concepts (list of tags)
+- aliases: list of alternate names for this concept (e.g. abbreviations, synonyms)
+- source_urls: list of URLs from the source documents (if available)

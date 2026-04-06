@@ -160,6 +160,7 @@ def file_to_wiki(
     category = _detect_category(content, concepts_path)
 
     # Update frontmatter for wiki
+    post.metadata["type"] = "qa-output"
     post.metadata["origin"] = "qa-output"
     post.metadata["filed_at"] = datetime.now(UTC).isoformat()
     post.metadata["content_hash"] = c_hash
